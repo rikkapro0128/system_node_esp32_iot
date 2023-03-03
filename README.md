@@ -1,0 +1,3 @@
+# Hệ thống IOT thiết kế điều khiển các thiết bị led ws2821b, công tắc chạm,...
+
+![alt esp32-wroom](https://i0.wp.com/randomnerdtutorials.com/wp-content/uploads/2018/08/esp32-pinout-chip-ESP-WROOM-32.png?resize=828%2C423&quality=100&strip=all&ssl=1)
