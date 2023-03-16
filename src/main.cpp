@@ -24,15 +24,23 @@
 #define MAX_NAME_INDEX_FIREBASE 25
 #define POOLING_WIFI 5000
 
+// > MODE COMPLIE ESP RUN
+
 #define _DEBUG_
 #define _RELEASE_
 
-const char *ntpServer = "pool.ntp.org";
-const char *CHost = "plant.io";
+// => VARIABLE GLOBAL
+
+// => STATIC
+static const char *ntpServer = "pool.ntp.org";
+static const char *CHost = "plant.io";
+static const char *TYPE_DEVICE = "LOGIC";
+
+// => INSIDE RAM
+
 String getMac = WiFi.macAddress();
 String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
-String TYPE_DEVICE = "LOGIC";
 String removeAfter;
 bool STATUS_PIN = false;
 String DATABASE_URL = "";
@@ -41,7 +49,7 @@ float_t flashSize = 80000;
 float_t percent = 100;
 bool reConnect = false;
 bool reLinkApp = false;
-bool resetConfig = false;
+bool resetConfigFirebase = false;
 bool timeControll = false;
 bool isFirst = true;
 bool blockControl = false;
@@ -53,7 +61,7 @@ size_t timeDebounceLocalControl = 0;
 size_t numTimer = 0;
 size_t timeoutWifi = 0;
 size_t idControl = 0;
-// int signal = 0;
+int uartPicControl = 0;
 int idTimerRuning;
 unsigned long sendDataPrevMillis = 0;
 unsigned long timerStack[NUMS_TIMER][3];
@@ -81,10 +89,7 @@ void PrintListTimer();
 
 // => RELEASE FUNC
 
-void setupStreamFirebase();
-void checkFirebaseInit();
-void setupWifiModeStation();
-void setupWebserverModeAP();
+// => FUNC SERVER
 void checkLinkAppication(AsyncWebServerRequest *request);
 void linkAppication(AsyncWebServerRequest *request, JsonVariant &json);
 void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json);
@@ -92,7 +97,14 @@ void resetConfigurationWifi(AsyncWebServerRequest *request);
 void resetConfigurationFirebase(AsyncWebServerRequest *request);
 void checkConfiguration(AsyncWebServerRequest *request);
 void notFound(AsyncWebServerRequest *request);
+void restartEsp(AsyncWebServerRequest *request);
+
+// => FUNC EXECUTE
 float_t ramHeapSize();
+void setupStreamFirebase();
+void checkFirebaseInit();
+void setupWifiModeStation();
+void setupWebserverModeAP();
 void clearBufferFirebaseDataAll();
 unsigned long Get_Epoch_Time();
 void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
@@ -336,7 +348,7 @@ FirebaseAuth auth;
 FirebaseConfig config;
 
 // WIFI MODE - AP
-String mode_ap_ssid = "esp32-miru";
+String mode_ap_ssid = "esp32-";
 String mode_ap_pass = "44448888";
 String mode_ap_ip = "192.168.1.120";
 String mode_ap_gateway = "192.168.1.1";
@@ -372,7 +384,7 @@ void setup()
   WiFi.hostname(CHost);
   WiFi.mode(WIFI_AP_STA);
   WiFi.persistent(true);
-  WiFi.softAP(mode_ap_ssid.c_str(), mode_ap_pass.c_str());
+  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC).c_str(), mode_ap_pass.c_str());
 
 #ifdef _DEBUG_
   IPAddress IP = WiFi.softAPIP();
@@ -406,40 +418,40 @@ void setup()
 
 void loop()
 {
-  // #ifdef _RELEASE_
-  // if (Serial.available() > 0)
-  // {
-  //   signal = (int)Serial.parseInt();
-  //   if (signal > 0 && blockControl == false)
-  //   {
-  //     control = signal % 2 == 0 ? false : true;
-  //     if (signal < 3)
-  //     {
-  //       idControl = 1;
-  //     }
-  //     else if (signal < 5)
-  //     {
-  //       idControl = 2;
-  //     }
-  //     else if (signal < 7)
-  //     {
-  //       idControl = 3;
-  //     }
-  //     if (millis() - timeDebounceLocalControl > 1000)
-  //     {
-  //       timeDebounceLocalControl = millis();
-  //       if (WiFi.status() == WL_CONNECTED)
-  //       {
-  //         controllDevice(idControl, control, true, true);
-  //       }
-  //       else
-  //       {
-  //         controllDevice(idControl, control, false, true);
-  //       }
-  //     }
-  //   }
-  // }
-  // #endif
+#ifdef _RELEASE_
+  if (Serial.available() > 0)
+  {
+    uartPicControl = (int)Serial.parseInt();
+    if (uartPicControl > 0 && blockControl == false)
+    {
+      control = uartPicControl % 2 == 0 ? false : true;
+      if (uartPicControl < 3)
+      {
+        idControl = 1;
+      }
+      else if (uartPicControl < 5)
+      {
+        idControl = 2;
+      }
+      else if (uartPicControl < 7)
+      {
+        idControl = 3;
+      }
+      if (millis() - timeDebounceLocalControl > 1000)
+      {
+        timeDebounceLocalControl = millis();
+        if (WiFi.status() == WL_CONNECTED)
+        {
+          controllDevice(idControl, control, true, true);
+        }
+        else
+        {
+          controllDevice(idControl, control, false, true);
+        }
+      }
+    }
+  }
+#endif
   if ((millis() - sendDataPrevMillis > 2500 || sendDataPrevMillis == 0))
   {
 #ifdef _DEBUG_
@@ -452,6 +464,9 @@ void loop()
       PrintListTimer();
 #endif
       epochTime = Get_Epoch_Time();
+#ifdef _DEBUG_
+      Serial.println("TimeStamp = " + String(epochTime));
+#endif
       bool expire = timerStack[0][1] > epochTime && timerStack[0][1] != NULL ? false : true;
       if (expire)
       {
@@ -470,65 +485,8 @@ void loop()
         Serial.printf("[Epoch Time] = %d", rangeTimer);
 #endif
         removeTimer(timerStack, indexTimerStack, indexTimerStack[0]);
-        if (timerStack[0][1] == NULL)
-        {
-          timeControll = false;
-        }
       }
     }
-  }
-  if (startRemovePath)
-  {
-#ifdef _DEBUG_
-    Serial.println("--- Start remove ---");
-#endif
-    clearBufferFirebaseDataAll();
-    if (ramHeapSize() > SSL_HANDSHAKE_REQUIRE)
-    {
-      if (Firebase.RTDB.deleteNode(&fbdoStream, removeAfter))
-      {
-#ifdef _DEBUG_
-        Serial.println("--- Remove Doned ---");
-#endif
-        // setupStreamFirebase();
-        removeAfter = "";
-        startRemovePath = false;
-      }
-      else
-      {
-#ifdef _DEBUG_
-        Serial.println("--- Can Not Remove ---");
-#endif
-      }
-    }
-    else
-    {
-#ifdef _DEBUG_
-      Serial.println("--- Ram Not Enouge to SSL ---");
-#endif
-    }
-  }
-  if (reLinkApp && !startRemovePath)
-  {
-    clearBufferFirebaseDataAll();
-#ifdef _DEBUG_
-    Serial.println("--- Start Init New Firebase Stream ---");
-#endif
-    checkFirebaseInit();
-    if (!fbdoStream.isStream())
-    {
-#ifdef _DEBUG_
-      Serial.println("--- Restart Init New Firebase Stream ---");
-#endif
-      setupStreamFirebase();
-    }
-    reLinkApp = false;
-  }
-  if (resetConfig)
-  {
-    clearBufferFirebaseDataAll();
-    Firebase.RTDB.deleteNode(&fbdoStream, removeAfter);
-    resetConfig = false;
   }
 }
 
@@ -748,7 +706,15 @@ void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREB
     {
       String pathRemove = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(numDevice) + "/timer/" + key;
       FirebaseData deleteNode;
-      Firebase.RTDB.deleteNode(&deleteNode, pathRemove);
+      fbdoControl.clear();
+      if(ramHeapSize() > (float_t)SSL_HANDSHAKE_REQUIRE) {
+        if(Firebase.RTDB.deleteNode(&deleteNode, pathRemove)) {
+          if (timerStack[0][1] == NULL)
+          {
+            timeControll = false;
+          }
+        }
+      }
 #ifdef _DEBUG_
       Serial.println("[DELETED PATH] = " + pathRemove);
       Serial.printf("[TIME END] = %d", millis());
@@ -950,6 +916,10 @@ void checkFirebaseInit()
       Serial.println("[CREATED] - NEW LIST DEVICE");
 #endif
     }
+    if (fbdoStream.isStream())
+    {
+      Firebase.RTDB.endStream(&fbdoStream);
+    }
     setupStreamFirebase();
   }
 }
@@ -989,8 +959,11 @@ void setupWebserverModeAP()
   // server.on("/scan-network", HTTP_GET, scanListNetwork);
   // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
   server.on("/is-config", HTTP_GET, checkConfiguration);
+  // [GET] - ROUTE: '/restart' => restart ESP
+  server.on("/restart", HTTP_GET, restartEsp);
   // [POST] - ROUTE: '/reset-config-wifi' => Reset config WIFI
   server.on("/reset-config-wifi", HTTP_POST, resetConfigurationWifi);
+  // [POST] - ROUTE: '/reset-config-firebase' => Reset config firebase
   server.on("/reset-config-firebase", HTTP_POST, resetConfigurationFirebase);
   // [POST] - ROUTE: '/config-wifi' => Goto config WIFI save below EEPROM
   AsyncCallbackJsonWebHandler *handlerAddConfig = new AsyncCallbackJsonWebHandler("/config-wifi", addConfiguration);
@@ -1022,6 +995,12 @@ unsigned long Get_Epoch_Time()
 
 // [********* Func Request *********]
 
+void restartEsp(AsyncWebServerRequest *request)
+{
+  ESP.restart();
+  request->send(200, "application/json", "{\"message\":\"ESP RESTARTED\"}");
+}
+
 void notFound(AsyncWebServerRequest *request)
 {
   request->send(404, "text/plain", "Not found");
@@ -1051,11 +1030,19 @@ void linkAppication(AsyncWebServerRequest *request, JsonVariant &json)
         bool stateSaveUserId = eeprom.saveUserID(idUser);
         if (stateSaveNodeId && stateSaveUserId)
         {
-          request->send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
-          reLinkApp = true;
-          if (removeAfter.length() > 0)
+          clearBufferFirebaseDataAll();
+#ifdef _DEBUG_
+          Serial.println("--- Start Init New Firebase Stream ---");
+#endif
+          checkFirebaseInit();
+          createNode.clear();
+          if (fbdoStream.isStream())
           {
-            startRemovePath = true;
+            request->send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+          }
+          else
+          {
+            request->send(400, "application/json", "{\"message\":\"LINK APP HAS BEEN FAIL\"}");
           }
         }
         else
@@ -1145,7 +1132,7 @@ void resetConfigurationFirebase(AsyncWebServerRequest *request)
     index++;
   }
   eeprom.saveDatabaseUrl("");
-  resetConfig = true;
+  resetConfigFirebase = true;
   request->send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
 }
 
