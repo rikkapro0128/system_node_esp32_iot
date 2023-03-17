@@ -6,6 +6,7 @@
 #include "time.h"
 #include "AsyncJson.h"
 #include <ESPAsyncWebServer.h>
+
 #ifdef ESP32
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -14,108 +15,9 @@
 #include <ESPAsyncTCP.h>
 #endif
 
-#define TIMER_INTERVAL_MS 1000
-
-// GLOBAL VARIABLE
-#define SSL_HANDSHAKE_REQUIRE 100
-#define ERROR_TIMER 10
-#define PIN_OUT 3
-#define NUMS_TIMER 30
-#define MAX_NAME_INDEX_FIREBASE 25
-#define POOLING_WIFI 5000
-
-// > MODE COMPLIE ESP RUN
-
-#define _DEBUG_
-#define _RELEASE_
-
-// => VARIABLE GLOBAL
-
-// => STATIC
-static const char *ntpServer = "pool.ntp.org";
-static const char *CHost = "plant.io";
-static const char *TYPE_DEVICE = "LOGIC";
-
-// => INSIDE RAM
-
-String getMac = WiFi.macAddress();
-String GEN_ID_BY_MAC = String(getMac);
-String ID_DEVICE;
-String removeAfter;
-bool STATUS_PIN = false;
-String DATABASE_URL = "";
-uint32_t ramSize;
-float_t flashSize = 80000;
-float_t percent = 100;
-bool reConnect = false;
-bool reLinkApp = false;
-bool resetConfigFirebase = false;
-bool timeControll = false;
-bool isFirst = true;
-bool blockControl = false;
-bool control = true;
-bool handTouch = false;
-bool missingCallBack = false;
-bool startRemovePath = false;
-size_t timeDebounceLocalControl = 0;
-size_t numTimer = 0;
-size_t timeoutWifi = 0;
-size_t idControl = 0;
-int uartPicControl = 0;
-int idTimerRuning;
-unsigned long sendDataPrevMillis = 0;
-unsigned long timerStack[NUMS_TIMER][3];
-bool stateDevice[3] = {false, false, false};
-bool stateDeviceFirebase[3] = {false, false, false};
-char indexTimerStack[NUMS_TIMER][MAX_NAME_INDEX_FIREBASE];
-unsigned long epochTime;
-FirebaseJson jsonNewDevice;
-FirebaseJson timerParseArray;
-FirebaseJsonData timerJson;
-FirebaseJsonData deviceJson;
-
-// JSON DOCUMENT
-DynamicJsonDocument bufferBodyPaserModeAP(400);
-
-// FUNCTION PROTOTYPE - COMPONENT
-
-// => DEBUG FUNC
-
-#ifdef _DEBUG_
-void checkRam();
-void viewEEPROM();
-void PrintListTimer();
-#endif
-
-// => RELEASE FUNC
-
-// => FUNC SERVER
-void checkLinkAppication(AsyncWebServerRequest *request);
-void linkAppication(AsyncWebServerRequest *request, JsonVariant &json);
-void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json);
-void resetConfigurationWifi(AsyncWebServerRequest *request);
-void resetConfigurationFirebase(AsyncWebServerRequest *request);
-void checkConfiguration(AsyncWebServerRequest *request);
-void notFound(AsyncWebServerRequest *request);
-void restartEsp(AsyncWebServerRequest *request);
-
-// => FUNC EXECUTE
-float_t ramHeapSize();
-void setupStreamFirebase();
-void checkFirebaseInit();
-void setupWifiModeStation();
-void setupWebserverModeAP();
-void clearBufferFirebaseDataAll();
-unsigned long Get_Epoch_Time();
-void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
-void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice);
-void streamCallback(FirebaseStream data);
-void streamTimeoutCallback(bool timeout);
-void controllDevice(uint8_t numDevice, bool state, bool syncFirebase = false, bool ignore = false);
-void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd = "");
-void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key, bool isCallBack = false);
-void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE]);
-unsigned int strLength(const char *str);
+/**
+ * ********* CLASS DEFINE *********************************************************************************************************************************************************************************************************************************
+ */
 
 class EepromMiru
 {
@@ -331,15 +233,191 @@ private:
   }
 };
 
-// [********* INSTANCE *********]
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
-// => EEPROM
+/**
+ * ********* MACRO DEFINE NODE TYPE *********************************************************************************************************************************************************************************************************************************
+ */
+
+// #define LOGIC
+// #define RGB
+// #define DIMMER
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* MACRO GENERAL *********************************************************************************************************************************************************************************************************************************
+ */
+
+#define SSL_HANDSHAKE_REQUIRE 100
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* MACRO - NODE TYPE - LOGIC *********************************************************************************************************************************************************************************************************************************
+ */
+
+#ifdef LOGIC
+
+#define MAX_NAME_INDEX_FIREBASE 25
+#define TIMER_INTERVAL_MS 1000
+#define ERROR_TIMER 10
+#define PIN_OUT 3
+#define NUMS_TIMER 30
+
+#endif
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* MACRO - NODE TYPE - RGB *********************************************************************************************************************************************************************************************************************************
+ */
+
+#ifdef RGB
+
+// define here...
+
+#endif
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* MODE DEV & DEPLOY *********************************************************************************************************************************************************************************************************************************
+ */
+
+#define _DEBUG_
+#define _RELEASE_
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* VARIABLE GLOBAL *********************************************************************************************************************************************************************************************************************************
+ */
+
+// => STATIC
+static const char *ntpServer = "pool.ntp.org";
+static const char *CHost = "plant.io";
+static const char *TYPE_DEVICE = "LOGIC";
+
+// => RAM INSIDE
+String getMac = WiFi.macAddress();
+String GEN_ID_BY_MAC = String(getMac);
+String ID_DEVICE;
+String DATABASE_URL = "";
+unsigned long epochTime;
+unsigned long timeIntervalCheckRamSize;
+size_t timeoutWifi = 0;
+
+// => RAM NODE TYPE LOGIC
+#ifdef LOGIC
+
+bool timeControll = false;
+bool blockControl = false;
+bool control = true;
+bool isFirst = true;
+size_t timeDebounceLocalControl = 0;
+size_t idControl = 0;
+int uartPicControl = 0;
+unsigned long sendDataPrevMillis = 0;
+unsigned long timerStack[NUMS_TIMER][3];
+bool stateDevice[3] = {false, false, false};
+bool stateDeviceFirebase[3] = {false, false, false};
+char indexTimerStack[NUMS_TIMER][MAX_NAME_INDEX_FIREBASE];
+
+// => Firebase data
+FirebaseJson timerParseArray;
+FirebaseJsonData timerJson;
+FirebaseJsonData deviceJson;
+
+#endif
+
+#ifdef RGB
+// define here...
+
+#endif
+
+// => Firebase data general
+FirebaseJson jsonNewDevice;
+
+// => JSON DOCUMENT
+DynamicJsonDocument bufferBodyPaserModeAP(400);
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* PROTOTYPE GENERAL *********************************************************************************************************************************************************************************************************************************
+ */
+
+// => DEBUG FUNC
+
+#ifdef _DEBUG_
+void viewEEPROM();
+#endif
+
+// => FUNC WEBSEVER SERVER
+void checkLinkAppication(AsyncWebServerRequest *request);
+void linkAppication(AsyncWebServerRequest *request, JsonVariant &json);
+void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json);
+void resetConfigurationWifi(AsyncWebServerRequest *request);
+void resetConfigurationFirebase(AsyncWebServerRequest *request);
+void checkConfiguration(AsyncWebServerRequest *request);
+void notFound(AsyncWebServerRequest *request);
+void restartEsp(AsyncWebServerRequest *request);
+
+// => FUNC EXECUTE GENERAL
+void checkRam();
+float_t ramHeapSize();
+void setupStreamFirebase();
+void checkFirebaseInit();
+void setupWifiModeStation();
+void setupWebserverModeAP();
+void clearBufferFirebaseDataAll();
+unsigned long Get_Epoch_Time();
+void streamCallback(FirebaseStream data);
+void streamTimeoutCallback(bool timeout);
+unsigned int strLength(const char *str);
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* PROTOTYPE NODE TYPE -> LOGIC *********************************************************************************************************************************************************************************************************************************
+ */
+
+#ifdef LOGIC
+#ifdef _DEBUG_
+void PrintListTimer();
+#endif
+void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
+void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice);
+void controllDevice(uint8_t numDevice, bool state, bool syncFirebase = false, bool ignore = false);
+void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd = "");
+void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key, bool isCallBack = false);
+void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE]);
+#endif
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* PROTOTYPE NODE TYPE -> RGB *********************************************************************************************************************************************************************************************************************************
+ */
+
+// define here....
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * ********* EEPROM *********************************************************************************************************************************************************************************************************************************
+ */
 EepromMiru eeprom(300, "esp8266-device-db-default-rtdb.firebaseio.com");
 
-// => SERVER
+/**
+ * ********* SERVER *********************************************************************************************************************************************************************************************************************************
+ */
 AsyncWebServer server(80);
 
-// => FIREBASE
+/**
+ * ********* FIREBASE *******************************************************************************************************************************************************************************************************************************
+ */
 FirebaseData fbdoStream;
 FirebaseData fbdoControl;
 FirebaseData createNode;
@@ -347,15 +425,11 @@ FirebaseData createNode;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-// WIFI MODE - AP
+/**
+ * ********* WIFI MODE - STATION ********************************************************************************************************************************************************************************************************************
+ */
 String mode_ap_ssid = "esp32-";
 String mode_ap_pass = "44448888";
-String mode_ap_ip = "192.168.1.120";
-String mode_ap_gateway = "192.168.1.1";
-String mode_ap_subnet = "255.255.255.0";
-String pathFile = "/";
-
-// WIFI MODE - STATION
 
 void setup()
 {
@@ -416,8 +490,11 @@ void setup()
   checkFirebaseInit();
 }
 
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
 void loop()
 {
+#ifdef LOGIC
 #ifdef _RELEASE_
   if (Serial.available() > 0)
   {
@@ -454,9 +531,6 @@ void loop()
 #endif
   if ((millis() - sendDataPrevMillis > 2500 || sendDataPrevMillis == 0))
   {
-#ifdef _DEBUG_
-    checkRam();
-#endif
     sendDataPrevMillis = millis();
     if (timerStack[0][1] != NULL && timeControll)
     {
@@ -488,9 +562,236 @@ void loop()
       }
     }
   }
-}
+#endif
+
+#ifdef LOGIC
+// execute something...
+#endif
 
 #ifdef _DEBUG_
+  if (millis() - timeIntervalCheckRamSize > 2500)
+  {
+    timeIntervalCheckRamSize = millis();
+    checkRam();
+  }
+#endif
+}
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ *   [********* START DEFINE FUNCTION REQUEST *********]
+ *
+ */
+
+void restartEsp(AsyncWebServerRequest *request)
+{
+  ESP.restart();
+  request->send(200, "application/json", "{\"message\":\"ESP RESTARTED\"}");
+}
+
+void notFound(AsyncWebServerRequest *request)
+{
+  request->send(404, "text/plain", "Not found");
+}
+
+// [POST]
+void linkAppication(AsyncWebServerRequest *request, JsonVariant &json)
+{
+  if (!json.isNull())
+  {
+    if (eeprom.canAccess)
+    {
+#ifdef _DEBUG_
+      Serial.println("DB Node = " + eeprom.DATABASE_NODE);
+      Serial.println("Wifi Status = " + String(WiFi.status()));
+#endif
+      JsonObject body = json.as<JsonObject>();
+      String idUser = body["idUser"];
+      String idNode = body["idNode"];
+#ifdef _DEBUG_
+      Serial.println("Link App: idUser = " + idUser + " - idNode = " + idNode);
+#endif
+      if (idUser.length() > 0 && idNode.length() > 0)
+      {
+        bool stateSaveNodeId = eeprom.saveNodeID(idNode);
+        bool stateSaveUserId = eeprom.saveUserID(idUser);
+        if (stateSaveNodeId && stateSaveUserId)
+        {
+          clearBufferFirebaseDataAll();
+#ifdef _DEBUG_
+          Serial.println("--- Start Init New Firebase Stream ---");
+#endif
+          checkFirebaseInit();
+          createNode.clear();
+          if (fbdoStream.isStream())
+          {
+            request->send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+          }
+          else
+          {
+            request->send(400, "application/json", "{\"message\":\"LINK APP HAS BEEN FAIL\"}");
+          }
+        }
+        else
+        {
+          request->send(500, "application/json", "{\"message\":\"FAILURE SAVE PAYLOADS\"}");
+        }
+      }
+      else
+      {
+        if (idUser.length() <= 0)
+        {
+          request->send(400, "application/json", "{\"message\":\"ID USER IS NULL\"}");
+        }
+        else if (idNode.length() <= 0)
+        {
+          request->send(400, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
+        }
+        else
+        {
+          request->send(400, "application/json", "{\"message\":\"PAYLOAD INVALID\"}");
+        }
+      }
+    }
+    else
+    {
+      request->send(500, "application/json", "{\"message\":\"SOMETHING WENT WRONG\"}");
+    }
+  }
+  else
+  {
+    request->send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
+  }
+}
+
+// [POST]
+void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json)
+{
+  if (!json.isNull())
+  {
+    JsonObject body = json.as<JsonObject>();
+
+    String ssid = body["ssid"];
+    String password = body["password"];
+    eeprom.saveSSID(ssid);
+    eeprom.savePassword(password);
+    // Serial.println("[Save config EEPROM]");
+    request->send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
+    setupWifiModeStation();
+  }
+  else
+  {
+    request->send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
+  }
+}
+
+// [POST]
+void resetConfigurationWifi(AsyncWebServerRequest *request)
+{
+  String ssid = eeprom.readSSID();
+  String password = eeprom.readPassword();
+#ifdef _DEBUG_
+  Serial.println("reset config: wifi = " + ssid + " - password = " + password);
+#endif
+  if (ssid.length() > 0 && password.length() > 0)
+  {
+    eeprom.saveSSID("");
+    eeprom.savePassword("");
+  }
+  request->send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
+}
+
+void resetConfigurationFirebase(AsyncWebServerRequest *request)
+{
+  String response_str;
+  DynamicJsonDocument response_json(200);
+  size_t index = 0;
+
+  if (eeprom.saveNodeID(""))
+  {
+    response_json["list-reset"][index] = "nodeId";
+    index++;
+  }
+  if (eeprom.saveUserID(""))
+  {
+    response_json["list-reset"][index] = "userId";
+    index++;
+  }
+  eeprom.saveDatabaseUrl("");
+  request->send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
+}
+
+// [GET]
+void checkLinkAppication(AsyncWebServerRequest *request)
+{
+  String nodeID = eeprom.readNodeID();
+  String userID = eeprom.readUserID();
+#ifdef _DEBUG_
+  Serial.println("check link app: nodeID = " + nodeID + " - userID = " + userID);
+#endif
+  if (nodeID.length() && userID.length())
+  {
+    String response_str;
+    DynamicJsonDocument response_json(200);
+    JsonObject payload = response_json.to<JsonObject>();
+    payload["nodeID"] = nodeID;
+    payload["userID"] = userID;
+    payload["message"] = "CONFIG IS FOUND";
+    serializeJson(payload, response_str);
+    request->send(200, "application/json", response_str);
+    response_json.clear();
+  }
+  else
+  {
+    request->send(403, "application/json", "{\"message\":\"CONFIG NOT FOUND\"}");
+  }
+}
+
+// [GET]
+void checkConfiguration(AsyncWebServerRequest *request)
+{
+  String ssid = eeprom.readSSID();
+  String password = eeprom.readPassword();
+#ifdef _DEBUG_
+  Serial.println("check config: ssid = " + ssid + " - password = " + password);
+#endif
+  if (ssid.length() > 0 && password.length() > 0)
+  {
+    String response_str;
+    DynamicJsonDocument response_json(200);
+    JsonObject payload = response_json.to<JsonObject>();
+    payload["ssid"] = ssid;
+    payload["password"] = password;
+    payload["ip-station"] = WiFi.localIP();
+    payload["status-station"] = WiFi.status();
+    payload["quality-station"] = WiFi.RSSI();
+    payload["message"] = "WIFI HAS BEEN CONFIG";
+    serializeJson(payload, response_str);
+    request->send(200, "application/json", response_str);
+    response_json.clear();
+  }
+  else
+  {
+    request->send(200, "application/json", "{\"message\":\"WIFI NOT YET CONFIG\"}");
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ *   [********* {START} DEFINE FUNCTION DEBUG *********]
+ *
+ */
+
+#ifdef _DEBUG_
+
+void checkRam()
+{
+  uint32_t ramSize = ESP.getFreeHeap();
+  Serial.printf("Ram size = %d (bytes)", &ramSize);
+}
+
 void viewEEPROM()
 {
   String ssid = eeprom.readSSID();
@@ -509,94 +810,20 @@ void viewEEPROM()
   Serial.println("WIFI NODE ID = " + nodeID + " | length = " + String(nodeID.length()));
   Serial.println("WIFI USER ID = " + userID + " | length = " + String(userID.length()));
 }
+
 #endif
 
-void setupStreamFirebase()
-{
-  Firebase.RTDB.setStreamCallback(&fbdoStream, streamCallback, streamTimeoutCallback);
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
-  if (!Firebase.RTDB.beginStream(&fbdoStream, eeprom.DATABASE_NODE + "/devices"))
-  {
-#ifdef _DEBUG_
-    Serial_Printf("stream begin error, %s\n\n", fbdoStream.errorReason().c_str());
-#endif
-  }
-  else
-  {
-#ifdef _DEBUG_
-    Serial.println(String("Stream OK!"));
-#endif
-  }
-}
+/**
+ *   [********* {START} DEFINE FUNCTION NODE -> TYPE "LOGIC" *********]
+ *
+ */
 
-void streamCallback(FirebaseStream data)
-{
-#ifdef _DEBUG_
-  Serial.println(ESP.getFreeHeap());
-  Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
-                data.streamPath().c_str(),
-                data.dataPath().c_str(),
-                data.dataType().c_str(),
-                data.eventType().c_str());
-  Serial.println();
-  Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
-#endif
-  String dataPath = data.dataPath();
-  uint8_t dataType = data.dataTypeEnum();
-  uint8_t numDevice = (uint8_t)(dataPath.substring(21, 22).toInt());
-  if (dataType == d_boolean)
-  {
-    if (dataPath.indexOf("state") > 0 || numDevice) // execute controll turn on device by [INDEX]
-    {
-      if (data.dataTypeEnum() == fb_esp_rtdb_data_type_boolean)
-      {
-        bool state = data.to<boolean>();
-        if (!blockControl)
-        {
-          controllDevice(numDevice, state);
-        }
-      }
-    }
-  }
-  else if (dataType == d_json)
-  {
-    if (dataPath.equals("/") && isFirst)
-    { // execute init state all device
-#ifdef _DEBUG_
-      Serial.println("Init Status");
-#endif
-      parserTimerJson(data, 1);
-      parserTimerJson(data, 2);
-      parserTimerJson(data, 3);
-
-      sortTimer(timerStack, indexTimerStack);
-
-      parserDeviceStatus(data, 1);
-      parserDeviceStatus(data, 2);
-      parserDeviceStatus(data, 3);
-      timeControll = true;
-      isFirst = false;
-    }
-    else if (dataPath.indexOf("timer") > 0 && numDevice)
-    {
-      parserTimerJson(data, numDevice, false); // add timer to list timer
-      sortTimer(timerStack, indexTimerStack);
-      timeControll = true;
-    }
-#ifdef _DEBUG_
-    PrintListTimer();
-#endif
-  }
-  else if (dataType == d_null)
-  {
-    removeTimer(timerStack, indexTimerStack, dataPath.substring(29, 49), true);
-#ifdef _DEBUG_
-    PrintListTimer();
-#endif
-  }
-}
+#ifdef LOGIC
 
 #ifdef _DEBUG_
+
 void PrintListTimer()
 {
   Serial.println("\nTimer Unix Stack: ");
@@ -646,7 +873,7 @@ void PrintListTimer()
     {
       Serial.print("[");
     }
-    Serial.print(String(indexTimerStack[i]) + (i == numTimer - 1 ? "" : ", "));
+    Serial.print(String(indexTimerStack[i]) + (i == NUMS_TIMER - 1 ? "" : ", "));
     if (strcmp(indexTimerStack[i + 1], "") == 0)
     {
       Serial.print("]");
@@ -655,6 +882,7 @@ void PrintListTimer()
   }
   Serial.println();
 }
+
 #endif
 
 void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key, bool isCallBack)
@@ -707,8 +935,10 @@ void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREB
       String pathRemove = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(numDevice) + "/timer/" + key;
       FirebaseData deleteNode;
       fbdoControl.clear();
-      if(ramHeapSize() > (float_t)SSL_HANDSHAKE_REQUIRE) {
-        if(Firebase.RTDB.deleteNode(&deleteNode, pathRemove)) {
+      if (ramHeapSize() > (float_t)SSL_HANDSHAKE_REQUIRE)
+      {
+        if (Firebase.RTDB.deleteNode(&deleteNode, pathRemove))
+        {
           if (timerStack[0][1] == NULL)
           {
             timeControll = false;
@@ -865,21 +1095,136 @@ void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
   fbJson.iteratorEnd();
 }
 
+#endif
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ *   [********* {START} DEFINE FUNCTION NODE -> TYPE "RGB" *********]
+ *
+ */
+
+// ..... define here ...
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ *   [********* {START} DEFINE FUNCTION GENERAL *********]
+ *
+ */
+
+float_t ramHeapSize()
+{
+  uint32_t ramSize = ESP.getFreeHeap();
+  return (float_t)(ramSize / ESP.getFlashChipSize() * 100);
+}
+
+void clearBufferFirebaseDataAll()
+{
+  fbdoStream.clear();
+  fbdoControl.clear();
+  createNode.clear();
+}
+
+void setupStreamFirebase()
+{
+  Firebase.RTDB.setStreamCallback(&fbdoStream, streamCallback, streamTimeoutCallback);
+
+  if (!Firebase.RTDB.beginStream(&fbdoStream, eeprom.DATABASE_NODE + "/devices"))
+  {
+#ifdef _DEBUG_
+    Serial_Printf("stream begin error, %s\n\n", fbdoStream.errorReason().c_str());
+#endif
+  }
+  else
+  {
+#ifdef _DEBUG_
+    Serial.println(String("Stream OK!"));
+#endif
+  }
+}
+
+void streamCallback(FirebaseStream data)
+{
+#ifdef _DEBUG_
+  Serial.println(ESP.getFreeHeap());
+  Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
+                data.streamPath().c_str(),
+                data.dataPath().c_str(),
+                data.dataType().c_str(),
+                data.eventType().c_str());
+  Serial.println();
+  Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
+#endif
+#ifdef LOGIC
+  String dataPath = data.dataPath();
+  uint8_t dataType = data.dataTypeEnum();
+  uint8_t numDevice = (uint8_t)(dataPath.substring(21, 22).toInt());
+  if (dataType == d_boolean)
+  {
+    if (dataPath.indexOf("state") > 0 || numDevice) // execute controll turn on device by [INDEX]
+    {
+      if (data.dataTypeEnum() == fb_esp_rtdb_data_type_boolean)
+      {
+        bool state = data.to<boolean>();
+        if (!blockControl)
+        {
+          controllDevice(numDevice, state);
+        }
+      }
+    }
+  }
+  else if (dataType == d_json)
+  {
+    if (dataPath.equals("/") && isFirst)
+    { // execute init state all device
+#ifdef _DEBUG_
+      Serial.println("Init Status");
+#endif
+      parserTimerJson(data, 1);
+      parserTimerJson(data, 2);
+      parserTimerJson(data, 3);
+
+      sortTimer(timerStack, indexTimerStack);
+
+      parserDeviceStatus(data, 1);
+      parserDeviceStatus(data, 2);
+      parserDeviceStatus(data, 3);
+      timeControll = true;
+      isFirst = false;
+    }
+    else if (dataPath.indexOf("timer") > 0 && numDevice)
+    {
+      parserTimerJson(data, numDevice, false); // add timer to list timer
+      sortTimer(timerStack, indexTimerStack);
+      timeControll = true;
+    }
+#ifdef _DEBUG_
+    PrintListTimer();
+#endif
+  }
+  else if (dataType == d_null)
+  {
+    removeTimer(timerStack, indexTimerStack, dataPath.substring(29, 49), true);
+#ifdef _DEBUG_
+    PrintListTimer();
+#endif
+  }
+#endif
+}
+
 void streamTimeoutCallback(bool timeout)
 {
+#ifdef _DEBUG_
   if (timeout)
   {
-#ifdef _DEBUG_
-    Serial.println("stream timed out, resuming...\n");
-#endif
+    Serial.println("Stream timed out, resuming...\n");
   }
-
   if (!fbdoStream.httpConnected())
   {
-#ifdef _DEBUG_
     Serial_Printf("error code: %d, reason: %s\n\n", fbdoStream.httpCode(), fbdoStream.errorReason().c_str());
-#endif
   }
+#endif
 }
 
 void checkFirebaseInit()
@@ -897,7 +1242,7 @@ void checkFirebaseInit()
     if (!statePath)
     {
       jsonNewDevice.clear();
-
+#ifdef LOGIC
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-1/state", false);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-1/type", TYPE_DEVICE);
 
@@ -906,6 +1251,12 @@ void checkFirebaseInit()
 
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/state", false);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/type", TYPE_DEVICE);
+#endif
+
+#ifdef RGB
+      // ... init device RGB
+
+#endif
 
       if (Firebase.RTDB.setJSON(&createNode, pathDevice, &jsonNewDevice))
       {
@@ -993,222 +1344,4 @@ unsigned long Get_Epoch_Time()
   return now;
 }
 
-// [********* Func Request *********]
-
-void restartEsp(AsyncWebServerRequest *request)
-{
-  ESP.restart();
-  request->send(200, "application/json", "{\"message\":\"ESP RESTARTED\"}");
-}
-
-void notFound(AsyncWebServerRequest *request)
-{
-  request->send(404, "text/plain", "Not found");
-}
-
-// [POST]
-void linkAppication(AsyncWebServerRequest *request, JsonVariant &json)
-{
-  if (!json.isNull())
-  {
-    if (eeprom.canAccess)
-    {
-#ifdef _DEBUG_
-      Serial.println("DB Node = " + eeprom.DATABASE_NODE);
-      Serial.println("Wifi Status = " + String(WiFi.status()));
-#endif
-      removeAfter = eeprom.DATABASE_NODE;
-      JsonObject body = json.as<JsonObject>();
-      String idUser = body["idUser"];
-      String idNode = body["idNode"];
-#ifdef _DEBUG_
-      Serial.println("Link App: idUser = " + idUser + " - idNode = " + idNode);
-#endif
-      if (idUser.length() > 0 && idNode.length() > 0)
-      {
-        bool stateSaveNodeId = eeprom.saveNodeID(idNode);
-        bool stateSaveUserId = eeprom.saveUserID(idUser);
-        if (stateSaveNodeId && stateSaveUserId)
-        {
-          clearBufferFirebaseDataAll();
-#ifdef _DEBUG_
-          Serial.println("--- Start Init New Firebase Stream ---");
-#endif
-          checkFirebaseInit();
-          createNode.clear();
-          if (fbdoStream.isStream())
-          {
-            request->send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
-          }
-          else
-          {
-            request->send(400, "application/json", "{\"message\":\"LINK APP HAS BEEN FAIL\"}");
-          }
-        }
-        else
-        {
-          request->send(500, "application/json", "{\"message\":\"FAILURE SAVE PAYLOADS\"}");
-        }
-      }
-      else
-      {
-        if (idUser.length() <= 0)
-        {
-          request->send(400, "application/json", "{\"message\":\"ID USER IS NULL\"}");
-        }
-        else if (idNode.length() <= 0)
-        {
-          request->send(400, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
-        }
-        else
-        {
-          request->send(400, "application/json", "{\"message\":\"PAYLOAD INVALID\"}");
-        }
-      }
-    }
-    else
-    {
-      request->send(500, "application/json", "{\"message\":\"SOMETHING WENT WRONG\"}");
-    }
-  }
-  else
-  {
-    request->send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
-  }
-}
-
-// [POST]
-void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json)
-{
-  if (!json.isNull())
-  {
-    JsonObject body = json.as<JsonObject>();
-
-    String ssid = body["ssid"];
-    String password = body["password"];
-    eeprom.saveSSID(ssid);
-    eeprom.savePassword(password);
-    // Serial.println("[Save config EEPROM]");
-    request->send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
-    setupWifiModeStation();
-  }
-  else
-  {
-    request->send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
-  }
-}
-
-// [POST]
-void resetConfigurationWifi(AsyncWebServerRequest *request)
-{
-  String ssid = eeprom.readSSID();
-  String password = eeprom.readPassword();
-#ifdef _DEBUG_
-  Serial.println("reset config: wifi = " + ssid + " - password = " + password);
-#endif
-  if (ssid.length() > 0 && password.length() > 0)
-  {
-    eeprom.saveSSID("");
-    eeprom.savePassword("");
-  }
-  request->send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
-}
-
-void resetConfigurationFirebase(AsyncWebServerRequest *request)
-{
-  String response_str;
-  DynamicJsonDocument response_json(200);
-  size_t index = 0;
-
-  removeAfter = eeprom.DATABASE_NODE;
-  if (eeprom.saveNodeID(""))
-  {
-    response_json["list-reset"][index] = "nodeId";
-    index++;
-  }
-  if (eeprom.saveUserID(""))
-  {
-    response_json["list-reset"][index] = "userId";
-    index++;
-  }
-  eeprom.saveDatabaseUrl("");
-  resetConfigFirebase = true;
-  request->send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
-}
-
-// [GET]
-void checkLinkAppication(AsyncWebServerRequest *request)
-{
-  String nodeID = eeprom.readNodeID();
-  String userID = eeprom.readUserID();
-#ifdef _DEBUG_
-  Serial.println("check link app: nodeID = " + nodeID + " - userID = " + userID);
-#endif
-  if (nodeID.length() && userID.length())
-  {
-    String response_str;
-    DynamicJsonDocument response_json(200);
-    JsonObject payload = response_json.to<JsonObject>();
-    payload["nodeID"] = nodeID;
-    payload["userID"] = userID;
-    payload["message"] = "CONFIG IS FOUND";
-    serializeJson(payload, response_str);
-    request->send(200, "application/json", response_str);
-    response_json.clear();
-  }
-  else
-  {
-    request->send(403, "application/json", "{\"message\":\"CONFIG NOT FOUND\"}");
-  }
-}
-
-// [GET]
-void checkConfiguration(AsyncWebServerRequest *request)
-{
-  String ssid = eeprom.readSSID();
-  String password = eeprom.readPassword();
-#ifdef _DEBUG_
-  Serial.println("check config: ssid = " + ssid + " - password = " + password);
-#endif
-  if (ssid.length() > 0 && password.length() > 0)
-  {
-    String response_str;
-    DynamicJsonDocument response_json(200);
-    JsonObject payload = response_json.to<JsonObject>();
-    payload["ssid"] = ssid;
-    payload["password"] = password;
-    payload["ip-station"] = WiFi.localIP();
-    payload["status-station"] = WiFi.status();
-    payload["quality-station"] = WiFi.RSSI();
-    payload["message"] = "WIFI HAS BEEN CONFIG";
-    serializeJson(payload, response_str);
-    request->send(200, "application/json", response_str);
-    response_json.clear();
-  }
-  else
-  {
-    request->send(200, "application/json", "{\"message\":\"WIFI NOT YET CONFIG\"}");
-  }
-}
-
-float_t ramHeapSize()
-{
-  ramSize = ESP.getFreeHeap();
-  return ((float_t)ramSize / flashSize * percent);
-}
-#ifdef _DEBUG_
-void checkRam()
-{
-  ramSize = ESP.getFreeHeap();
-#if defined(_DEBUG_) || defined(_RELEASE_)
-  Serial.println(String(((float_t)ramSize / flashSize * percent)) + " (kb)");
-#endif
-}
-#endif
-
-void clearBufferFirebaseDataAll()
-{
-  fbdoStream.clear();
-  fbdoControl.clear();
-  createNode.clear();
-}
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
