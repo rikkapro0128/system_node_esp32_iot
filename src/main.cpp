@@ -240,7 +240,7 @@ private:
  */
 
 // #define LOGIC
-// #define RGB
+#define COLOR
 // #define DIMMER
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -270,10 +270,10 @@ private:
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * ********* MACRO - NODE TYPE - RGB *********************************************************************************************************************************************************************************************************************************
+ * ********* MACRO - NODE TYPE - COLOR *********************************************************************************************************************************************************************************************************************************
  */
 
-#ifdef RGB
+#ifdef COLOR
 
 // define here...
 
@@ -297,7 +297,6 @@ private:
 // => STATIC
 static const char *ntpServer = "pool.ntp.org";
 static const char *CHost = "plant.io";
-static const char *TYPE_DEVICE = "LOGIC";
 
 // => RAM INSIDE
 String getMac = WiFi.macAddress();
@@ -311,6 +310,7 @@ size_t timeoutWifi = 0;
 // => RAM NODE TYPE LOGIC
 #ifdef LOGIC
 
+static const char *TYPE_DEVICE = "LOGIC";
 bool timeControll = false;
 bool blockControl = false;
 bool control = true;
@@ -331,9 +331,9 @@ FirebaseJsonData deviceJson;
 
 #endif
 
-#ifdef RGB
+#ifdef COLOR
 // define here...
-
+static const char *TYPE_DEVICE = "COLOR";
 #endif
 
 // => Firebase data general
@@ -398,10 +398,13 @@ void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBAS
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * ********* PROTOTYPE NODE TYPE -> RGB *********************************************************************************************************************************************************************************************************************************
+ * ********* PROTOTYPE NODE TYPE -> COLOR *********************************************************************************************************************************************************************************************************************************
  */
 
 // define here....
+#ifdef COLOR
+
+#endif
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
@@ -788,8 +791,7 @@ void checkConfiguration(AsyncWebServerRequest *request)
 
 void checkRam()
 {
-  uint32_t ramSize = ESP.getFreeHeap();
-  Serial.printf("Ram size = %d (bytes)", &ramSize);
+  Serial.printf("Ram size = %d (bytes)\n", ESP.getFreeHeap());
 }
 
 void viewEEPROM()
@@ -1100,7 +1102,7 @@ void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
- *   [********* {START} DEFINE FUNCTION NODE -> TYPE "RGB" *********]
+ *   [********* {START} DEFINE FUNCTION NODE -> TYPE "COLOR" *********]
  *
  */
 
@@ -1129,18 +1131,27 @@ void clearBufferFirebaseDataAll()
 void setupStreamFirebase()
 {
   Firebase.RTDB.setStreamCallback(&fbdoStream, streamCallback, streamTimeoutCallback);
-
-  if (!Firebase.RTDB.beginStream(&fbdoStream, eeprom.DATABASE_NODE + "/devices"))
+  String pathStream;
+  #ifdef LOGIC
+    pathStream = eeprom.DATABASE_NODE + "/devices";
+  #endif
+  #ifdef COLOR
+    pathStream = eeprom.DATABASE_NODE + "/value";
+  #endif
+  if (pathStream.length() > 0)
   {
+    if (!Firebase.RTDB.beginStream(&fbdoStream, pathStream))
+    {
 #ifdef _DEBUG_
-    Serial_Printf("stream begin error, %s\n\n", fbdoStream.errorReason().c_str());
+      Serial_Printf("stream begin error, %s\n\n", fbdoStream.errorReason().c_str());
 #endif
-  }
-  else
-  {
+    }
+    else
+    {
 #ifdef _DEBUG_
-    Serial.println(String("Stream OK!"));
+      Serial.println(String("Stream OK!"));
 #endif
+    }
   }
 }
 
@@ -1253,9 +1264,13 @@ void checkFirebaseInit()
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/type", TYPE_DEVICE);
 #endif
 
-#ifdef RGB
-      // ... init device RGB
-
+#ifdef COLOR
+      // ... init device COLOR
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/r", 0);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/g", 0);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/b", 0);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/contrast", 0);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/type", TYPE_DEVICE);
 #endif
 
       if (Firebase.RTDB.setJSON(&createNode, pathDevice, &jsonNewDevice))
