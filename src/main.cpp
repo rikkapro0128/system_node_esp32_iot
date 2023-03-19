@@ -7,12 +7,26 @@
 #include "AsyncJson.h"
 #include <ESPAsyncWebServer.h>
 
+/**
+ * ********* MACRO DEFINE NODE TYPE *********************************************************************************************************************************************************************************************************************************
+ */
+
+// #define LOGIC
+#define COLOR
+// #define DIMMER
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+
 #ifdef ESP32
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #elif defined(ESP8266)
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
+#endif
+
+#ifdef COLOR
+#include <Adafruit_NeoPixel.h>
 #endif
 
 /**
@@ -236,16 +250,6 @@ private:
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * ********* MACRO DEFINE NODE TYPE *********************************************************************************************************************************************************************************************************************************
- */
-
-// #define LOGIC
-#define COLOR
-// #define DIMMER
-
-/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
-
-/**
  * ********* MACRO GENERAL *********************************************************************************************************************************************************************************************************************************
  */
 
@@ -276,6 +280,15 @@ private:
 #ifdef COLOR
 
 // define here...
+
+typedef enum MODE_RGB
+{
+  SINGLE = 0,
+  RAINBOW = 1,
+};
+
+#define DI GPIO_NUM_14
+#define NUMS_LED 16
 
 #endif
 
@@ -334,6 +347,14 @@ FirebaseJsonData deviceJson;
 #ifdef COLOR
 // define here...
 static const char *TYPE_DEVICE = "COLOR";
+
+uint8_t color[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
+MODE_RGB modeRGB = SINGLE;
+bool acceptChange = false;
+
+// => Firebase data
+FirebaseJsonData deviceJson;
+
 #endif
 
 // => Firebase data general
@@ -342,11 +363,21 @@ FirebaseJson jsonNewDevice;
 // => JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(400);
 
+/**
+ * ********* CONTRUCTOR NODE TYPE - COLOR *********************************************************************************************************************************************************************************************************************************
+ */
+
+#ifdef COLOR
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMS_LED, DI, NEO_GRB + NEO_KHZ800);
+#endif
+
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
  * ********* PROTOTYPE GENERAL *********************************************************************************************************************************************************************************************************************************
  */
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 // => DEBUG FUNC
 
@@ -404,6 +435,8 @@ void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBAS
 // define here....
 #ifdef COLOR
 
+void setColorChainRGBA(uint32_t c, uint8_t a);
+
 #endif
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -431,8 +464,25 @@ FirebaseConfig config;
 /**
  * ********* WIFI MODE - STATION ********************************************************************************************************************************************************************************************************************
  */
+
 String mode_ap_ssid = "esp32-";
 String mode_ap_pass = "44448888";
+
+uint32_t Wheel(byte WheelPos)
+{
+  WheelPos = 255 - WheelPos;
+  if (WheelPos < 85)
+  {
+    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if (WheelPos < 170)
+  {
+    WheelPos -= 85;
+    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
 
 void setup()
 {
@@ -446,6 +496,12 @@ void setup()
   Serial.begin(115200);
 #endif
 
+#ifdef COLOR
+  strip.begin();
+  strip.setBrightness(100);
+  strip.show();
+#endif
+
 #ifdef _DEBUG_
   Serial.println("");
   Serial.println("[---PROGRAM START---]");
@@ -456,6 +512,8 @@ void setup()
 
 #ifdef _DEBUG_
   viewEEPROM();
+  Serial.printf("[DEBUG] Data Color = rgba(%d, %d, %d, %d)\n", color[0], color[1], color[2], color[3]);
+  Serial.println("[DEBUG] Mode Color = " + String(modeRGB));
 #endif
 
   WiFi.hostname(CHost);
@@ -567,8 +625,33 @@ void loop()
   }
 #endif
 
-#ifdef LOGIC
-// execute something...
+#ifdef COLOR
+  // execute something...
+  if (acceptChange)
+  {
+    if (modeRGB == SINGLE)
+    {
+      #ifdef _DEBUG_
+  Serial.printf("[DEBUG] Data Color = rgba(%d, %d, %d, %d)\n", color[0], color[1], color[2], color[3]);
+#endif
+      setColorChainRGBA(strip.Color(color[0], color[1], color[2]), color[3]);
+    }
+    else if (modeRGB == RAINBOW)
+    {
+      uint16_t i, j;
+
+      for (j = 0; j < 256 * 5; j++)
+      { // 5 cycles of all colors on wheel
+        for (i = 0; i < strip.numPixels(); i++)
+        {
+          strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+        }
+        strip.show();
+        delay(20);
+      }
+    }
+    acceptChange = false;
+  }
 #endif
 
 #ifdef _DEBUG_
@@ -1105,9 +1188,19 @@ void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
  *   [********* {START} DEFINE FUNCTION NODE -> TYPE "COLOR" *********]
  *
  */
-
+#ifdef COLOR
 // ..... define here ...
+void setColorChainRGBA(uint32_t c, uint8_t a)
+{
+  for (uint16_t i = 0; i < strip.numPixels(); i++)
+  {
+    strip.setPixelColor(i, c);
+  }
+  strip.setBrightness(a);
+  strip.show();
+}
 
+#endif
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -1132,12 +1225,15 @@ void setupStreamFirebase()
 {
   Firebase.RTDB.setStreamCallback(&fbdoStream, streamCallback, streamTimeoutCallback);
   String pathStream;
-  #ifdef LOGIC
-    pathStream = eeprom.DATABASE_NODE + "/devices";
-  #endif
-  #ifdef COLOR
-    pathStream = eeprom.DATABASE_NODE + "/value";
-  #endif
+#ifdef LOGIC
+  pathStream = eeprom.DATABASE_NODE + "/devices";
+#endif
+#ifdef COLOR
+  pathStream = eeprom.DATABASE_NODE + "/devices/device-" + GEN_ID_BY_MAC + "/value";
+#ifdef _DEBUG_
+  Serial.println("[DEBUG] Path Stream = " + pathStream);
+#endif
+#endif
   if (pathStream.length() > 0)
   {
     if (!Firebase.RTDB.beginStream(&fbdoStream, pathStream))
@@ -1158,7 +1254,6 @@ void setupStreamFirebase()
 void streamCallback(FirebaseStream data)
 {
 #ifdef _DEBUG_
-  Serial.println(ESP.getFreeHeap());
   Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
                 data.streamPath().c_str(),
                 data.dataPath().c_str(),
@@ -1221,6 +1316,32 @@ void streamCallback(FirebaseStream data)
     PrintListTimer();
 #endif
   }
+#endif
+#ifdef COLOR
+  // Parser Data led here
+
+#ifdef _DEBUG_
+  Serial.println("[DEBUG] Data Color = " + data.jsonString());
+#endif
+
+  data.jsonObject().get(deviceJson, "r");
+  uint8_t colorR = deviceJson.to<int>();
+  color[0] = colorR;
+  deviceJson.clear();
+  data.jsonObject().get(deviceJson, "g");
+  uint8_t colorG = deviceJson.to<int>();
+  color[1] = colorG;
+  deviceJson.clear();
+  data.jsonObject().get(deviceJson, "b");
+  uint8_t colorB = deviceJson.to<int>();
+  color[2] = colorB;
+  deviceJson.clear();
+  data.jsonObject().get(deviceJson, "contrast");
+  uint8_t alpha = deviceJson.to<int>();
+  color[3] = alpha;
+  deviceJson.clear();
+
+  acceptChange = true;
 #endif
 }
 
