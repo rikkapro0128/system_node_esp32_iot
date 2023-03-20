@@ -59,6 +59,7 @@ public:
     for (unsigned int i = 0; i < this->size; i++)
     {
       EEPROM.write(i, NULL);
+      delay(5);
     }
     EEPROM.end();
     this->updateDatabaseNode("", "");
@@ -77,6 +78,16 @@ public:
     return temp;
   }
 
+#ifdef COLOR
+  bool saveStyleColor(uint8_t style)
+  {
+    EEPROM.begin(this->size);
+    EEPROM.write(this->addr_ColorStyle, style);
+    EEPROM.commit();
+    EEPROM.end();
+    return true;
+  }
+#endif
   bool saveSSID(String ssid)
   {
     return this->checkWrite(this->addr_ssid, ssid, this->ssid);
@@ -105,6 +116,15 @@ public:
     return state;
   }
 
+#ifdef COLOR
+  uint8_t readStyleColor()
+  {
+    EEPROM.begin(this->size);
+    uint8_t character = EEPROM.read(this->addr_ColorStyle);
+    EEPROM.end();
+    return character;
+  }
+#endif
   String readSSID()
   {
     return this->checkRead(this->addr_ssid, this->ssid);
@@ -145,6 +165,9 @@ private:
   int addr_NodeID = 150;
   int addr_databaseUrl = 200;
   uint8_t maxCharacter = 0;
+#ifdef COLOR
+  int addr_ColorStyle = 320;
+#endif
 
   String checkRead(int addr, String &cacheValue)
   {
@@ -187,27 +210,27 @@ private:
   {
     int len_str = tmp.length();
     uint8_t checkLimit = this->maxCharacter ? this->maxCharacter : limit;
-#ifdef _DEBUG_
-    Serial.println(checkLimit);
-#endif
     if (len_str > checkLimit)
     {
       return false;
     }
     else
     {
+
       EEPROM.begin(this->size);
       int start = 0;
-      for (uint8_t i = addr; i < addr + checkLimit; i++)
+      for (uint8_t i = addr; i < (addr + checkLimit); i++)
       {
         if (i < (addr + len_str))
         {
           EEPROM.write(i, (uint8_t)tmp[start]);
+          delay(5);
           start++;
         }
         else
         {
           EEPROM.write(i, NULL);
+          delay(5);
         }
       }
       EEPROM.commit();
@@ -284,7 +307,15 @@ private:
 typedef enum MODE_RGB
 {
   SINGLE = 0,
-  RAINBOW = 1,
+  AUTO = 1,
+};
+
+typedef enum INDEX_COLOR
+{
+  COLOR_R = 0,
+  COLOR_G = 1,
+  COLOR_B = 2,
+  COLOR_ALPHA = 3,
 };
 
 #define DI GPIO_NUM_14
@@ -318,6 +349,7 @@ String ID_DEVICE;
 String DATABASE_URL = "";
 unsigned long epochTime;
 unsigned long timeIntervalCheckRamSize;
+bool restartConfigWifi = false;
 size_t timeoutWifi = 0;
 
 // => RAM NODE TYPE LOGIC
@@ -348,9 +380,11 @@ FirebaseJsonData deviceJson;
 // define here...
 static const char *TYPE_DEVICE = "COLOR";
 
-uint8_t color[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
-MODE_RGB modeRGB = SINGLE;
+uint8_t colorPresentState[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
+uint8_t colorFultureState[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
+uint8_t modeRGB = (uint8_t)SINGLE;
 bool acceptChange = false;
+bool clearEffect = false;
 
 // => Firebase data
 FirebaseJsonData deviceJson;
@@ -435,7 +469,12 @@ void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBAS
 // define here....
 #ifdef COLOR
 
+bool fadeColor(INDEX_COLOR index);
 void setColorChainRGBA(uint32_t c, uint8_t a);
+void parserColorRGB(FirebaseStream &data, String prefix = "");
+uint8_t parserColorStyle(FirebaseStream &data, bool init = false);
+uint32_t Wheel(byte WheelPos);
+void clearEffectColor(uint8_t brightness = 100);
 
 #endif
 
@@ -444,7 +483,7 @@ void setColorChainRGBA(uint32_t c, uint8_t a);
 /**
  * ********* EEPROM *********************************************************************************************************************************************************************************************************************************
  */
-EepromMiru eeprom(300, "esp8266-device-db-default-rtdb.firebaseio.com");
+EepromMiru eeprom(350, "esp8266-device-db-default-rtdb.firebaseio.com");
 
 /**
  * ********* SERVER *********************************************************************************************************************************************************************************************************************************
@@ -467,22 +506,6 @@ FirebaseConfig config;
 
 String mode_ap_ssid = "esp32-";
 String mode_ap_pass = "44448888";
-
-uint32_t Wheel(byte WheelPos)
-{
-  WheelPos = 255 - WheelPos;
-  if (WheelPos < 85)
-  {
-    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
-  }
-  if (WheelPos < 170)
-  {
-    WheelPos -= 85;
-    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
-  }
-  WheelPos -= 170;
-  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-}
 
 void setup()
 {
@@ -512,8 +535,6 @@ void setup()
 
 #ifdef _DEBUG_
   viewEEPROM();
-  Serial.printf("[DEBUG] Data Color = rgba(%d, %d, %d, %d)\n", color[0], color[1], color[2], color[3]);
-  Serial.println("[DEBUG] Mode Color = " + String(modeRGB));
 #endif
 
   WiFi.hostname(CHost);
@@ -555,6 +576,26 @@ void setup()
 
 void loop()
 {
+  if (restartConfigWifi)
+  {
+    timeoutWifi = 0;
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      if (timeoutWifi > 12)
+      {
+        break;
+      }
+      timeoutWifi++;
+      delay(500);
+    }
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      clearBufferFirebaseDataAll();
+      checkFirebaseInit();
+    }
+    restartConfigWifi = false;
+  }
+
 #ifdef LOGIC
 #ifdef _RELEASE_
   if (Serial.available() > 0)
@@ -627,30 +668,49 @@ void loop()
 
 #ifdef COLOR
   // execute something...
-  if (acceptChange)
+  if (clearEffect)
   {
-    if (modeRGB == SINGLE)
+    clearEffectColor();
+    clearEffect = false;
+  }
+  if (modeRGB == SINGLE && !clearEffect)
+  {
+    if (acceptChange)
     {
-      #ifdef _DEBUG_
-  Serial.printf("[DEBUG] Data Color = rgba(%d, %d, %d, %d)\n", color[0], color[1], color[2], color[3]);
-#endif
-      setColorChainRGBA(strip.Color(color[0], color[1], color[2]), color[3]);
-    }
-    else if (modeRGB == RAINBOW)
-    {
-      uint16_t i, j;
-
-      for (j = 0; j < 256 * 5; j++)
-      { // 5 cycles of all colors on wheel
-        for (i = 0; i < strip.numPixels(); i++)
+      while (true)
+      {
+        bool resultR = fadeColor(COLOR_R);
+        bool resultG = fadeColor(COLOR_G);
+        bool resultB = fadeColor(COLOR_B);
+        bool resultALPHA = fadeColor(COLOR_ALPHA);
+        setColorChainRGBA(strip.Color(colorPresentState[0], colorPresentState[1], colorPresentState[2]), colorPresentState[3]);
+        if (!resultR && !resultG && !resultB && !resultALPHA)
         {
-          strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+          break;
         }
+      }
+      acceptChange = false;
+    }
+  }
+  else if (modeRGB == AUTO && !clearEffect)
+  {
+    uint16_t i = 0, j = 0;
+    while (true)
+    {
+      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+      i++;
+      if (i >= strip.numPixels())
+      {
+        i = 0;
+        j++;
         strip.show();
         delay(20);
       }
+      if (j >= (256 * 5) - 1 || modeRGB != AUTO || restartConfigWifi || clearEffect)
+      {
+        break;
+      }
     }
-    acceptChange = false;
   }
 #endif
 
@@ -765,6 +825,7 @@ void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json)
     // Serial.println("[Save config EEPROM]");
     request->send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
     setupWifiModeStation();
+    restartConfigWifi = true;
   }
   else
   {
@@ -886,14 +947,19 @@ void viewEEPROM()
   String userID = eeprom.readUserID();
   String dbNode = eeprom.DATABASE_NODE;
   String urlNode = eeprom.readDatabaseUrlNode();
+#ifdef COLOR
+  uint8_t styleColor = eeprom.readStyleColor();
+#endif
 
-  Serial.println("WIFI NAME = " + ssid + " | length = " + String(ssid.length()));
-  Serial.println("WIFI PASS = " + password + " | length = " + String(password.length()));
-  Serial.println("WIFI DATATBASE URL = " + url + " | length = " + String(url.length()));
-  Serial.println("STATE URL = " + String(eeprom.canAccess));
-  Serial.println("WIFI DATATBASE URL - NODE = " + dbNode + " | length = " + String(dbNode.length()));
-  Serial.println("WIFI NODE ID = " + nodeID + " | length = " + String(nodeID.length()));
-  Serial.println("WIFI USER ID = " + userID + " | length = " + String(userID.length()));
+  Serial.println("[DEBUG] WIFI NAME = " + ssid + " | length = " + String(ssid.length()));
+  Serial.println("[DEBUG] WIFI PASS = " + password + " | length = " + String(password.length()));
+  Serial.println("[DEBUG] WIFI DATATBASE URL = " + url + " | length = " + String(url.length()));
+  Serial.println("[DEBUG] STATE URL = " + String(eeprom.canAccess));
+  Serial.println("[DEBUG] WIFI DATATBASE URL - NODE = " + dbNode + " | length = " + String(dbNode.length()));
+  Serial.println("[DEBUG] WIFI NODE ID = " + nodeID + " | length = " + String(nodeID.length()));
+#ifdef COLOR
+  Serial.println("[DEBUG] MODE COLOR = " + String(styleColor));
+#endif
 }
 
 #endif
@@ -1190,6 +1256,41 @@ void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
  */
 #ifdef COLOR
 // ..... define here ...
+
+uint32_t Wheel(byte WheelPos)
+{
+  WheelPos = 255 - WheelPos;
+  if (WheelPos < 85)
+  {
+    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if (WheelPos < 170)
+  {
+    WheelPos -= 85;
+    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
+
+bool fadeColor(INDEX_COLOR index)
+{
+  if (colorPresentState[index] > colorFultureState[index])
+  {
+    colorPresentState[index] = --colorPresentState[index];
+    return true;
+  }
+  else if (colorPresentState[index] < colorFultureState[index])
+  {
+    colorPresentState[index] = ++colorPresentState[index];
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
 void setColorChainRGBA(uint32_t c, uint8_t a)
 {
   for (uint16_t i = 0; i < strip.numPixels(); i++)
@@ -1198,6 +1299,56 @@ void setColorChainRGBA(uint32_t c, uint8_t a)
   }
   strip.setBrightness(a);
   strip.show();
+}
+
+void clearEffectColor(uint8_t brightness)
+{
+  strip.setBrightness(brightness);
+  for (uint16_t i = 0; i < strip.numPixels(); i++)
+  {
+    strip.setPixelColor(i, strip.Color(0, 0, 0));
+    strip.show();
+    delay(10);
+  }
+  colorPresentState[0] = 0;
+  colorPresentState[1] = 0;
+  colorPresentState[2] = 0;
+  colorPresentState[3] = 0;
+  acceptChange = true;
+}
+
+void parserColorRGB(FirebaseStream &data, String prefix)
+{
+  data.jsonObject().get(deviceJson, prefix + "r");
+  uint8_t colorR = deviceJson.to<int>();
+  colorFultureState[0] = colorR;
+  deviceJson.clear();
+  data.jsonObject().get(deviceJson, prefix + "g");
+  uint8_t colorG = deviceJson.to<int>();
+  colorFultureState[1] = colorG;
+  deviceJson.clear();
+  data.jsonObject().get(deviceJson, prefix + "b");
+  uint8_t colorB = deviceJson.to<int>();
+  colorFultureState[2] = colorB;
+  deviceJson.clear();
+  data.jsonObject().get(deviceJson, prefix + "contrast");
+  uint8_t alpha = deviceJson.to<int>();
+  colorFultureState[3] = alpha;
+  deviceJson.clear();
+  acceptChange = true;
+}
+
+uint8_t parserColorStyle(FirebaseStream &data, bool init)
+{
+  if (init)
+  {
+    data.jsonObject().get(deviceJson, "mode");
+    return deviceJson.to<uint8_t>();
+  }
+  else
+  {
+    return data.to<uint8_t>();
+  }
 }
 
 #endif
@@ -1229,7 +1380,7 @@ void setupStreamFirebase()
   pathStream = eeprom.DATABASE_NODE + "/devices";
 #endif
 #ifdef COLOR
-  pathStream = eeprom.DATABASE_NODE + "/devices/device-" + GEN_ID_BY_MAC + "/value";
+  pathStream = eeprom.DATABASE_NODE + "/devices/device-" + GEN_ID_BY_MAC;
 #ifdef _DEBUG_
   Serial.println("[DEBUG] Path Stream = " + pathStream);
 #endif
@@ -1262,9 +1413,9 @@ void streamCallback(FirebaseStream data)
   Serial.println();
   Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
 #endif
-#ifdef LOGIC
   String dataPath = data.dataPath();
   uint8_t dataType = data.dataTypeEnum();
+#ifdef LOGIC
   uint8_t numDevice = (uint8_t)(dataPath.substring(21, 22).toInt());
   if (dataType == d_boolean)
   {
@@ -1318,30 +1469,50 @@ void streamCallback(FirebaseStream data)
   }
 #endif
 #ifdef COLOR
-  // Parser Data led here
+
+  if (dataType == d_json)
+  {
+    if (dataPath == "/")
+    {
+      modeRGB = parserColorStyle(data, true);
 
 #ifdef _DEBUG_
-  Serial.println("[DEBUG] Data Color = " + data.jsonString());
+      Serial.println("[DEBUG] Data Mode Color = " + String(modeRGB));
 #endif
+      eeprom.saveStyleColor(modeRGB);
+      if (modeRGB == SINGLE)
+      {
+        // Parser Data led RGB here
 
-  data.jsonObject().get(deviceJson, "r");
-  uint8_t colorR = deviceJson.to<int>();
-  color[0] = colorR;
-  deviceJson.clear();
-  data.jsonObject().get(deviceJson, "g");
-  uint8_t colorG = deviceJson.to<int>();
-  color[1] = colorG;
-  deviceJson.clear();
-  data.jsonObject().get(deviceJson, "b");
-  uint8_t colorB = deviceJson.to<int>();
-  color[2] = colorB;
-  deviceJson.clear();
-  data.jsonObject().get(deviceJson, "contrast");
-  uint8_t alpha = deviceJson.to<int>();
-  color[3] = alpha;
-  deviceJson.clear();
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Data Color = " + data.jsonString());
+#endif
+        parserColorRGB(data, "value/");
+      }
+    }
+    else if (dataPath.indexOf("value") > 0)
+    {
 
-  acceptChange = true;
+#ifdef _DEBUG_
+      Serial.println("[DEBUG] Data Color = " + data.jsonString());
+#endif
+      parserColorRGB(data);
+    }
+  }
+  else if (dataType == d_integer)
+  {
+    if (dataPath.indexOf("mode") > 0)
+    {
+      modeRGB = parserColorStyle(data);
+      eeprom.saveStyleColor(modeRGB);
+      clearEffect = true;
+
+#ifdef _DEBUG_
+      Serial.println("[DEBUG] Data Mode Color = " + String(modeRGB));
+#endif
+    }
+  }
+
 #endif
 }
 
@@ -1392,6 +1563,7 @@ void checkFirebaseInit()
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/b", 0);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/contrast", 0);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/type", TYPE_DEVICE);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/mode", (uint8_t)SINGLE);
 #endif
 
       if (Firebase.RTDB.setJSON(&createNode, pathDevice, &jsonNewDevice))
