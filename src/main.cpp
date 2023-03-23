@@ -278,6 +278,8 @@ private:
 
 #define SSL_HANDSHAKE_REQUIRE 100
 
+#define PIN_RESET_DEFLAUT GPIO_NUM_13
+
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -321,7 +323,9 @@ typedef enum INDEX_COLOR
 #define DI GPIO_NUM_27
 #define NUMS_LED 16
 
-#define POOLING_CHECK_WIFI 5000
+#define TIME_RESET_DEFAULT 5000
+#define POOLING_CHECK_CONNECT_AP 5000
+#define POOLING_RESTART_CONNECT_AP 700
 
 #define STATUS_START_DELAY_FLICKER_SHORT 100
 #define STATUS_START_DELAY_FLICKER_LONG 1000
@@ -355,15 +359,19 @@ String getMac = WiFi.macAddress();
 String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
 String DATABASE_URL = "";
+unsigned long timeStartResetPinDetach;
 unsigned long epochTime;
 unsigned long wifiStatus;
-unsigned long rgbModeAuto;
+unsigned long poolingReconnectWifi;
 unsigned long blinkStart;
 unsigned long timeIntervalCheckRamSize;
 uint8_t countBlink = 0;
 bool restartConfigWifi = false;
+bool lostConnection = false;
+bool blockBtnReset = false;
+bool disableBtnReset = false;
+bool globalRestart = false;
 size_t timeoutWifi = 0;
-uint16_t autoIndexI = 0, autoIndexJ = 0;
 
 // => RAM NODE TYPE LOGIC
 #ifdef LOGIC
@@ -398,6 +406,9 @@ uint8_t colorFultureState[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 
 uint8_t modeRGB = (uint8_t)SINGLE;
 bool acceptChange = false;
 bool clearEffect = false;
+bool requestRestart = false;
+unsigned long rgbModeAuto;
+uint16_t autoIndexI = 0, autoIndexJ = 0;
 
 // => Firebase data
 FirebaseJsonData deviceJson;
@@ -443,8 +454,10 @@ void notFound(AsyncWebServerRequest *request);
 void restartEsp(AsyncWebServerRequest *request);
 
 // => FUNC EXECUTE GENERAL
+
+void initResetDeflaut();
 void checkRam();
-float_t ramHeapSize();
+uint32_t ramHeapSize();
 void setupStreamFirebase();
 void checkFirebaseInit();
 void setupWifiModeStation();
@@ -510,6 +523,7 @@ AsyncWebServer server(80);
 FirebaseData fbdoStream;
 FirebaseData fbdoControl;
 FirebaseData createNode;
+FirebaseData removeNode;
 
 FirebaseAuth auth;
 FirebaseConfig config;
@@ -523,6 +537,7 @@ String mode_ap_pass = "44448888";
 
 void setup()
 {
+  initResetDeflaut();
 #ifdef COLOR
   initSignal();
 #endif
@@ -596,6 +611,7 @@ void setup()
 #ifdef ESP8266
   fbdoStream.setBSSLBufferSize(1024 /* Rx in bytes, 512 - 16384 */, 1024 /* Tx in bytes, 512 - 16384 */);
 #endif
+
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
   checkFirebaseInit();
@@ -605,25 +621,164 @@ void setup()
 
 void loop()
 {
-  if (restartConfigWifi)
+
+  if (globalRestart)
   {
-    timeoutWifi = 0;
-    while (WiFi.status() != WL_CONNECTED)
+    ESP.restart();
+  }
+
+  if (restartConfigWifi) // restart & init new connection to access point
+  {
+    if (millis() - poolingReconnectWifi > POOLING_RESTART_CONNECT_AP)
     {
-      if (timeoutWifi > 12)
+      poolingReconnectWifi = millis();
+      if (WiFi.status() == WL_CONNECTED)
       {
-        break;
+        restartConfigWifi = false;
+#ifdef COLOR
+        clearEffect = true;
+        digitalWrite(STATUS_PIN_WIFI, HIGH);
+#endif
+        clearBufferFirebaseDataAll();
+        checkFirebaseInit();
       }
-      timeoutWifi++;
-      delay(500);
+      else
+      {
+        lostConnection = true;
+        WiFi.reconnect();
+      }
     }
+  }
+
+  if (millis() - wifiStatus > POOLING_CHECK_CONNECT_AP && !restartConfigWifi) // check status connect, reconnect if this conection failure!
+  {
+    wifiStatus = millis();
     if (WiFi.status() == WL_CONNECTED)
     {
+#ifdef COLOR
+      if (lostConnection)
+      {
+        clearEffect = true;
+        lostConnection = false;
+      }
       digitalWrite(STATUS_PIN_WIFI, HIGH);
-      clearBufferFirebaseDataAll();
-      checkFirebaseInit();
+#endif
     }
-    restartConfigWifi = false;
+    else
+    {
+      lostConnection = true;
+      WiFi.reconnect();
+      fbdoStream.tcpClient.networkReconnect();
+#ifdef COLOR
+      digitalWrite(STATUS_PIN_WIFI, LOW);
+#endif
+    }
+  }
+
+  if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_SHORT) // this is animation status run mode
+  {
+    if (countBlink < 4)
+    {
+      blinkStart = millis();
+      if (countBlink % 2 == 0)
+      {
+        digitalWrite(STATUS_PIN_START, HIGH);
+      }
+      else
+      {
+        digitalWrite(STATUS_PIN_START, LOW);
+      }
+      countBlink++;
+    }
+    else if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_LONG)
+    {
+      blinkStart = millis();
+      countBlink = 0;
+    }
+  }
+
+  if (!disableBtnReset)
+  {
+
+    if (digitalRead(PIN_RESET_DEFLAUT) == LOW && !blockBtnReset)
+    {
+      timeStartResetPinDetach = millis();
+      blockBtnReset = true;
+#ifdef _DEBUG_
+      Serial.println("[DEBUG] Start btn HIGH");
+#endif
+    }
+
+    if (digitalRead(PIN_RESET_DEFLAUT) == HIGH && blockBtnReset)
+    {
+#ifdef _DEBUG_
+      Serial.println("[DEBUG] Start btn LOW");
+#endif
+      blockBtnReset = false;
+    }
+
+    if (millis() - timeStartResetPinDetach > TIME_RESET_DEFAULT && blockBtnReset)
+    {
+#ifdef _DEBUG_
+      Serial.println("[DEBUG] Start Reset Default");
+#endif
+
+      if (eeprom.DATABASE_NODE.length() > 0)
+      {
+        Firebase.RTDB.endStream(&fbdoStream);
+        clearBufferFirebaseDataAll();
+        if (ramHeapSize() > SSL_HANDSHAKE_REQUIRE * 1000)
+        {
+#ifdef _DEBUG_
+          Serial.println("[DEBUG] Remove Database node: " + eeprom.DATABASE_NODE);
+#endif
+          if (Firebase.RTDB.deleteNode(&removeNode, eeprom.DATABASE_NODE))
+          {
+#ifdef _DEBUG_
+            Serial.println("[DEBUG] Remove Database node successfull!");
+#endif
+          }
+          else
+          {
+#ifdef _DEBUG_
+            Serial.println("[DEBUG] Remove Database node failure!");
+#endif
+          }
+        }
+        else
+        {
+
+#ifdef _DEBUG_
+          Serial.println("[DEBUG] Heap ram not enough to handshake ssl delete node!");
+#endif
+        }
+        // reset link application
+        eeprom.saveNodeID("");
+        eeprom.saveUserID("");
+
+        // reset wifi configration
+        eeprom.savePassword("");
+        eeprom.saveSSID("");
+      }
+      else
+      {
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Not found node url to remove!");
+#endif
+      }
+
+#ifdef LOGIC
+      globalRestart = true;
+#endif
+
+#ifdef COLOR
+      eeprom.saveStyleColor(SINGLE);
+      requestRestart = true;
+      clearEffect = true;
+#endif
+      disableBtnReset = true;
+      blockBtnReset = false;
+    }
   }
 
 #ifdef LOGIC
@@ -736,41 +891,6 @@ void loop()
     if (autoIndexJ >= (256 * 5) - 1)
     {
       autoIndexJ = 0;
-    }
-  }
-
-  if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_SHORT) // this is animation status run mode
-  {
-    if (countBlink < 4)
-    {
-      blinkStart = millis();
-      if (countBlink % 2 == 0)
-      {
-        digitalWrite(STATUS_PIN_START, HIGH);
-      }
-      else
-      {
-        digitalWrite(STATUS_PIN_START, LOW);
-      }
-      countBlink++;
-    }
-    else if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_LONG)
-    {
-      blinkStart = millis();
-      countBlink = 0;
-    }
-  }
-
-  if (millis() - wifiStatus > POOLING_CHECK_WIFI)
-  {
-    wifiStatus = millis();
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      digitalWrite(STATUS_PIN_WIFI, HIGH);
-    }
-    else
-    {
-      digitalWrite(STATUS_PIN_WIFI, LOW);
     }
   }
 
@@ -1148,7 +1268,7 @@ void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREB
       String pathRemove = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(numDevice) + "/timer/" + key;
       FirebaseData deleteNode;
       fbdoControl.clear();
-      if (ramHeapSize() > (float_t)SSL_HANDSHAKE_REQUIRE)
+      if (ramHeapSize() > SSL_HANDSHAKE_REQUIRE * 1000)
       {
         if (Firebase.RTDB.deleteNode(&deleteNode, pathRemove))
         {
@@ -1381,6 +1501,10 @@ void clearEffectColor(uint8_t brightness)
     strip.show();
     delay(10);
   }
+  if (requestRestart)
+  {
+    globalRestart = true;
+  }
   colorPresentState[0] = 0;
   colorPresentState[1] = 0;
   colorPresentState[2] = 0;
@@ -1430,10 +1554,14 @@ uint8_t parserColorStyle(FirebaseStream &data, bool init)
  *
  */
 
-float_t ramHeapSize()
+void initResetDeflaut()
 {
-  uint32_t ramSize = ESP.getFreeHeap();
-  return (float_t)(ramSize / ESP.getFlashChipSize() * 100);
+  pinMode(PIN_RESET_DEFLAUT, INPUT_PULLUP);
+}
+
+uint32_t ramHeapSize()
+{
+  return ESP.getFreeHeap();
 }
 
 void clearBufferFirebaseDataAll()
@@ -1441,6 +1569,7 @@ void clearBufferFirebaseDataAll()
   fbdoStream.clear();
   fbdoControl.clear();
   createNode.clear();
+  removeNode.clear();
 }
 
 void setupStreamFirebase()
