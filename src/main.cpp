@@ -318,8 +318,16 @@ typedef enum INDEX_COLOR
   COLOR_ALPHA = 3,
 };
 
-#define DI GPIO_NUM_14
+#define DI GPIO_NUM_27
 #define NUMS_LED 16
+
+#define POOLING_CHECK_WIFI 5000
+
+#define STATUS_START_DELAY_FLICKER_SHORT 100
+#define STATUS_START_DELAY_FLICKER_LONG 1000
+
+#define STATUS_PIN_START GPIO_NUM_16
+#define STATUS_PIN_WIFI GPIO_NUM_17
 
 #endif
 
@@ -348,9 +356,14 @@ String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
 String DATABASE_URL = "";
 unsigned long epochTime;
+unsigned long wifiStatus;
+unsigned long rgbModeAuto;
+unsigned long blinkStart;
 unsigned long timeIntervalCheckRamSize;
+uint8_t countBlink = 0;
 bool restartConfigWifi = false;
 size_t timeoutWifi = 0;
+uint16_t autoIndexI = 0, autoIndexJ = 0;
 
 // => RAM NODE TYPE LOGIC
 #ifdef LOGIC
@@ -469,6 +482,7 @@ void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBAS
 // define here....
 #ifdef COLOR
 
+void initSignal();
 bool fadeColor(INDEX_COLOR index);
 void setColorChainRGBA(uint32_t c, uint8_t a);
 void parserColorRGB(FirebaseStream &data, String prefix = "");
@@ -509,6 +523,10 @@ String mode_ap_pass = "44448888";
 
 void setup()
 {
+#ifdef COLOR
+  initSignal();
+#endif
+
   GEN_ID_BY_MAC.replace(":", "");
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC);
 
@@ -560,6 +578,17 @@ void setup()
     delay(500);
   }
 
+#ifdef COLOR
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    digitalWrite(STATUS_PIN_WIFI, HIGH);
+  }
+  else
+  {
+    digitalWrite(STATUS_PIN_WIFI, LOW);
+  }
+#endif
+
   setupWebserverModeAP();
 
   config.database_url = eeprom.databaseUrl;
@@ -590,6 +619,7 @@ void loop()
     }
     if (WiFi.status() == WL_CONNECTED)
     {
+      digitalWrite(STATUS_PIN_WIFI, HIGH);
       clearBufferFirebaseDataAll();
       checkFirebaseInit();
     }
@@ -694,24 +724,56 @@ void loop()
   }
   else if (modeRGB == AUTO && !clearEffect)
   {
-    uint16_t i = 0, j = 0;
-    while (true)
+    strip.setPixelColor(autoIndexI, Wheel(((autoIndexI * 256 / strip.numPixels()) + autoIndexJ) & 255));
+    autoIndexI++;
+    if (autoIndexI >= strip.numPixels() && millis() - rgbModeAuto > 20)
     {
-      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
-      i++;
-      if (i >= strip.numPixels())
-      {
-        i = 0;
-        j++;
-        strip.show();
-        delay(20);
-      }
-      if (j >= (256 * 5) - 1 || modeRGB != AUTO || restartConfigWifi || clearEffect)
-      {
-        break;
-      }
+      rgbModeAuto = millis();
+      autoIndexI = 0;
+      autoIndexJ++;
+      strip.show();
+    }
+    if (autoIndexJ >= (256 * 5) - 1)
+    {
+      autoIndexJ = 0;
     }
   }
+
+  if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_SHORT) // this is animation status run mode
+  {
+    if (countBlink < 4)
+    {
+      blinkStart = millis();
+      if (countBlink % 2 == 0)
+      {
+        digitalWrite(STATUS_PIN_START, HIGH);
+      }
+      else
+      {
+        digitalWrite(STATUS_PIN_START, LOW);
+      }
+      countBlink++;
+    }
+    else if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_LONG)
+    {
+      blinkStart = millis();
+      countBlink = 0;
+    }
+  }
+
+  if (millis() - wifiStatus > POOLING_CHECK_WIFI)
+  {
+    wifiStatus = millis();
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      digitalWrite(STATUS_PIN_WIFI, HIGH);
+    }
+    else
+    {
+      digitalWrite(STATUS_PIN_WIFI, LOW);
+    }
+  }
+
 #endif
 
 #ifdef _DEBUG_
@@ -746,64 +808,64 @@ void linkAppication(AsyncWebServerRequest *request, JsonVariant &json)
 {
   if (!json.isNull())
   {
-    if (eeprom.canAccess)
+    // if (eeprom.canAccess)
+    // {
+#ifdef _DEBUG_
+    Serial.println("DB Node = " + eeprom.DATABASE_NODE);
+    Serial.println("Wifi Status = " + String(WiFi.status()));
+#endif
+    JsonObject body = json.as<JsonObject>();
+    String idUser = body["idUser"];
+    String idNode = body["idNode"];
+#ifdef _DEBUG_
+    Serial.println("Link App: idUser = " + idUser + " - idNode = " + idNode);
+#endif
+    if (idUser.length() > 0 && idNode.length() > 0)
     {
-#ifdef _DEBUG_
-      Serial.println("DB Node = " + eeprom.DATABASE_NODE);
-      Serial.println("Wifi Status = " + String(WiFi.status()));
-#endif
-      JsonObject body = json.as<JsonObject>();
-      String idUser = body["idUser"];
-      String idNode = body["idNode"];
-#ifdef _DEBUG_
-      Serial.println("Link App: idUser = " + idUser + " - idNode = " + idNode);
-#endif
-      if (idUser.length() > 0 && idNode.length() > 0)
+      bool stateSaveNodeId = eeprom.saveNodeID(idNode);
+      bool stateSaveUserId = eeprom.saveUserID(idUser);
+      if (stateSaveNodeId && stateSaveUserId)
       {
-        bool stateSaveNodeId = eeprom.saveNodeID(idNode);
-        bool stateSaveUserId = eeprom.saveUserID(idUser);
-        if (stateSaveNodeId && stateSaveUserId)
-        {
-          clearBufferFirebaseDataAll();
+        clearBufferFirebaseDataAll();
 #ifdef _DEBUG_
-          Serial.println("--- Start Init New Firebase Stream ---");
+        Serial.println("--- Start Init New Firebase Stream ---");
 #endif
-          checkFirebaseInit();
-          createNode.clear();
-          if (fbdoStream.isStream())
-          {
-            request->send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
-          }
-          else
-          {
-            request->send(400, "application/json", "{\"message\":\"LINK APP HAS BEEN FAIL\"}");
-          }
+        checkFirebaseInit();
+        createNode.clear();
+        if (fbdoStream.isStream())
+        {
+          request->send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
         }
         else
         {
-          request->send(500, "application/json", "{\"message\":\"FAILURE SAVE PAYLOADS\"}");
+          request->send(400, "application/json", "{\"message\":\"LINK APP HAS BEEN FAIL\"}");
         }
       }
       else
       {
-        if (idUser.length() <= 0)
-        {
-          request->send(400, "application/json", "{\"message\":\"ID USER IS NULL\"}");
-        }
-        else if (idNode.length() <= 0)
-        {
-          request->send(400, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
-        }
-        else
-        {
-          request->send(400, "application/json", "{\"message\":\"PAYLOAD INVALID\"}");
-        }
+        request->send(500, "application/json", "{\"message\":\"FAILURE SAVE PAYLOADS\"}");
       }
     }
     else
     {
-      request->send(500, "application/json", "{\"message\":\"SOMETHING WENT WRONG\"}");
+      if (idUser.length() <= 0)
+      {
+        request->send(400, "application/json", "{\"message\":\"ID USER IS NULL\"}");
+      }
+      else if (idNode.length() <= 0)
+      {
+        request->send(400, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
+      }
+      else
+      {
+        request->send(400, "application/json", "{\"message\":\"PAYLOAD INVALID\"}");
+      }
     }
+    // }
+    // else
+    // {
+    //   request->send(500, "application/json", "{\"message\":\"SOMETHING WENT WRONG\"}");
+    // }
   }
   else
   {
@@ -1256,6 +1318,15 @@ void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
  */
 #ifdef COLOR
 // ..... define here ...
+
+void initSignal()
+{
+  pinMode(STATUS_PIN_START, OUTPUT);
+  pinMode(STATUS_PIN_WIFI, OUTPUT);
+
+  digitalWrite(STATUS_PIN_START, LOW);
+  digitalWrite(STATUS_PIN_WIFI, LOW);
+}
 
 uint32_t Wheel(byte WheelPos)
 {
