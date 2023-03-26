@@ -277,6 +277,7 @@ private:
  */
 
 #define SSL_HANDSHAKE_REQUIRE 100
+#define MAX_CONNECTION_FAILURE 5
 
 #define PIN_RESET_DEFLAUT GPIO_NUM_13
 
@@ -352,7 +353,7 @@ typedef enum INDEX_COLOR
 
 // => STATIC
 static const char *ntpServer = "pool.ntp.org";
-static const char *CHost = "plant.io";
+static const char *CHost = "miru.io-";
 
 // => RAM INSIDE
 String getMac = WiFi.macAddress();
@@ -366,6 +367,7 @@ unsigned long poolingReconnectWifi;
 unsigned long blinkStart;
 unsigned long timeIntervalCheckRamSize;
 uint8_t countBlink = 0;
+uint8_t countConnectionFailure = 0;
 bool restartConfigWifi = false;
 bool lostConnection = false;
 bool blockBtnReset = false;
@@ -444,6 +446,7 @@ void viewEEPROM();
 #endif
 
 // => FUNC WEBSEVER SERVER
+void pingResponse(AsyncWebServerRequest *request);
 void checkLinkAppication(AsyncWebServerRequest *request);
 void linkAppication(AsyncWebServerRequest *request, JsonVariant &json);
 void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json);
@@ -570,7 +573,7 @@ void setup()
   viewEEPROM();
 #endif
 
-  WiFi.hostname(CHost);
+  WiFi.hostname(String(CHost + GEN_ID_BY_MAC));
   WiFi.mode(WIFI_AP_STA);
   WiFi.persistent(true);
   WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC).c_str(), mode_ap_pass.c_str());
@@ -631,16 +634,29 @@ void loop()
   {
     if (millis() - poolingReconnectWifi > POOLING_RESTART_CONNECT_AP)
     {
+      uint8_t statusWL = WiFi.status();
+#ifdef _DEBUG_
+      Serial.println("Status Wifi " + String(statusWL));
+#endif
       poolingReconnectWifi = millis();
-      if (WiFi.status() == WL_CONNECTED)
+      if (statusWL == WL_CONNECTED)
       {
         restartConfigWifi = false;
+        if (countConnectionFailure > 0)
+        {
+          countConnectionFailure = 0;
+        }
 #ifdef COLOR
         clearEffect = true;
+        acceptChange = true;
         digitalWrite(STATUS_PIN_WIFI, HIGH);
 #endif
         clearBufferFirebaseDataAll();
         checkFirebaseInit();
+      }
+      else if (statusWL == WL_NO_SHIELD)
+      {
+        setupWifiModeStation();
       }
       else
       {
@@ -652,19 +668,28 @@ void loop()
 
   if (millis() - wifiStatus > POOLING_CHECK_CONNECT_AP && !restartConfigWifi) // check status connect, reconnect if this conection failure!
   {
+    uint8_t statusWL = WiFi.status();
     wifiStatus = millis();
-    if (WiFi.status() == WL_CONNECTED)
+#ifdef _DEBUG_
+    Serial.println("Status Wifi " + String(statusWL));
+#endif
+    if (statusWL == WL_CONNECTED)
     {
+      if (countConnectionFailure > 0)
+      {
+        countConnectionFailure = 0;
+      }
 #ifdef COLOR
       if (lostConnection)
       {
         clearEffect = true;
         lostConnection = false;
       }
+      acceptChange = true;
       digitalWrite(STATUS_PIN_WIFI, HIGH);
 #endif
     }
-    else
+    else if (statusWL == WL_CONNECTION_LOST)
     {
       lostConnection = true;
       WiFi.reconnect();
@@ -672,6 +697,18 @@ void loop()
 #ifdef COLOR
       digitalWrite(STATUS_PIN_WIFI, LOW);
 #endif
+    }
+    else if (statusWL == WL_IDLE_STATUS || statusWL == WL_DISCONNECTED || statusWL == WL_NO_SSID_AVAIL || statusWL == WL_NO_SHIELD)
+    {
+      restartConfigWifi = true;
+    }
+    else if (statusWL == WL_CONNECT_FAILED)
+    {
+      if (countConnectionFailure < MAX_CONNECTION_FAILURE)
+      {
+        restartConfigWifi = true;
+      }
+      countConnectionFailure++;
     }
   }
 
@@ -912,10 +949,39 @@ void loop()
  *
  */
 
+void pingResponse(AsyncWebServerRequest *request)
+{
+  String response_str;
+  DynamicJsonDocument response_json(200);
+  JsonObject payload = response_json.to<JsonObject>();
+
+#ifdef LOGIC
+  payload["value"]["btn_1"] = stateDevice[0];
+  payload["value"]["btn_2"] = stateDevice[1];
+  payload["value"]["btn_3"] = stateDevice[2];
+#endif
+
+#ifdef COLOR
+  JsonObject color;
+  payload["value"]["r"] = colorFultureState[0];
+  payload["value"]["g"] = colorFultureState[1];
+  payload["value"]["b"] = colorFultureState[2];
+  payload["value"]["a"] = colorFultureState[3];
+#endif
+
+  payload["uid"] = eeprom.readUserID();
+  payload["nodeId"] = eeprom.readNodeID();
+
+  serializeJson(payload, response_str);
+  request->send(200, "application/json", response_str);
+  response_json.clear();
+  payload.clear();
+}
+
 void restartEsp(AsyncWebServerRequest *request)
 {
-  ESP.restart();
   request->send(200, "application/json", "{\"message\":\"ESP RESTARTED\"}");
+  ESP.restart();
 }
 
 void notFound(AsyncWebServerRequest *request)
@@ -1817,6 +1883,8 @@ void setupWebserverModeAP()
   // [GET] - ROUTE: '/reset-config' => Reset config WIFI
   // server.on("/scan-network", HTTP_GET, scanListNetwork);
   // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
+  server.on("/ping", HTTP_GET, pingResponse);
+  // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
   server.on("/is-config", HTTP_GET, checkConfiguration);
   // [GET] - ROUTE: '/restart' => restart ESP
   server.on("/restart", HTTP_GET, restartEsp);
@@ -1836,6 +1904,7 @@ void setupWebserverModeAP()
   // START WEBSERVER
   server.addHandler(handlerAddConfig);
   server.addHandler(handlerLinkApp);
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   server.begin();
 }
 
