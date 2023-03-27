@@ -40,6 +40,9 @@ public:
   String DATABASE_NODE = "";
   String databaseUrl = "";
   bool canAccess = false;
+#ifdef COLOR
+  uint8_t modeRGBs = 0;
+#endif
 
   EepromMiru(int size, String url_database = "")
   {
@@ -51,6 +54,9 @@ public:
   {
     this->DATABASE_NODE = this->readDatabaseUrlNode();
     this->checkAccess();
+#ifdef COLOR
+    this->modeRGBs = this->readModeColor();
+#endif
   }
 
   void resetAll()
@@ -79,10 +85,11 @@ public:
   }
 
 #ifdef COLOR
-  bool saveStyleColor(uint8_t style)
+  bool saveModeColor(uint8_t mode)
   {
     EEPROM.begin(this->size);
-    EEPROM.write(this->addr_ColorStyle, style);
+    this->modeRGBs = mode;
+    EEPROM.write(this->addr_ModeColor, mode);
     EEPROM.commit();
     EEPROM.end();
     return true;
@@ -117,10 +124,10 @@ public:
   }
 
 #ifdef COLOR
-  uint8_t readStyleColor()
+  uint8_t readModeColor()
   {
     EEPROM.begin(this->size);
-    uint8_t character = EEPROM.read(this->addr_ColorStyle);
+    uint8_t character = EEPROM.read(this->addr_ModeColor);
     EEPROM.end();
     return character;
   }
@@ -166,7 +173,7 @@ private:
   int addr_databaseUrl = 200;
   uint8_t maxCharacter = 0;
 #ifdef COLOR
-  int addr_ColorStyle = 320;
+  int addr_ModeColor = 320;
 #endif
 
   String checkRead(int addr, String &cacheValue)
@@ -281,6 +288,16 @@ private:
 
 #define PIN_RESET_DEFLAUT GPIO_NUM_13
 
+#define STATUS_PIN_START GPIO_NUM_16
+#define STATUS_PIN_WIFI GPIO_NUM_17
+
+#define TIME_RESET_DEFAULT 5000
+#define POOLING_CHECK_CONNECT_AP 5000
+#define POOLING_RESTART_CONNECT_AP 700
+
+#define STATUS_START_DELAY_FLICKER_SHORT 100
+#define STATUS_START_DELAY_FLICKER_LONG 1000
+
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -323,16 +340,6 @@ typedef enum INDEX_COLOR
 
 #define DI GPIO_NUM_27
 #define NUMS_LED 16
-
-#define TIME_RESET_DEFAULT 5000
-#define POOLING_CHECK_CONNECT_AP 5000
-#define POOLING_RESTART_CONNECT_AP 700
-
-#define STATUS_START_DELAY_FLICKER_SHORT 100
-#define STATUS_START_DELAY_FLICKER_LONG 1000
-
-#define STATUS_PIN_START GPIO_NUM_16
-#define STATUS_PIN_WIFI GPIO_NUM_17
 
 #endif
 
@@ -405,7 +412,6 @@ static const char *TYPE_DEVICE = "COLOR";
 
 uint8_t colorPresentState[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
 uint8_t colorFultureState[4] = {0, 0, 0, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
-uint8_t modeRGB = (uint8_t)SINGLE;
 bool acceptChange = false;
 bool clearEffect = false;
 bool requestRestart = false;
@@ -446,6 +452,7 @@ void viewEEPROM();
 #endif
 
 // => FUNC WEBSEVER SERVER
+void controllDevices(AsyncWebServerRequest *request, JsonVariant &json);
 void pingResponse(AsyncWebServerRequest *request);
 void checkLinkAppication(AsyncWebServerRequest *request);
 void linkAppication(AsyncWebServerRequest *request, JsonVariant &json);
@@ -458,6 +465,7 @@ void restartEsp(AsyncWebServerRequest *request);
 
 // => FUNC EXECUTE GENERAL
 
+void initSignal();
 void initResetDeflaut();
 void checkRam();
 uint32_t ramHeapSize();
@@ -498,11 +506,10 @@ void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBAS
 // define here....
 #ifdef COLOR
 
-void initSignal();
 bool fadeColor(INDEX_COLOR index);
 void setColorChainRGBA(uint32_t c, uint8_t a);
 void parserColorRGB(FirebaseStream &data, String prefix = "");
-uint8_t parserColorStyle(FirebaseStream &data, bool init = false);
+uint8_t parserColorMode(FirebaseStream &data, bool init = false);
 uint32_t Wheel(byte WheelPos);
 void clearEffectColor(uint8_t brightness = 100);
 
@@ -541,9 +548,7 @@ String mode_ap_pass = "44448888";
 void setup()
 {
   initResetDeflaut();
-#ifdef COLOR
   initSignal();
-#endif
 
   GEN_ID_BY_MAC.replace(":", "");
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC);
@@ -596,7 +601,6 @@ void setup()
     delay(500);
   }
 
-#ifdef COLOR
   if (WiFi.status() == WL_CONNECTED)
   {
     digitalWrite(STATUS_PIN_WIFI, HIGH);
@@ -605,7 +609,6 @@ void setup()
   {
     digitalWrite(STATUS_PIN_WIFI, LOW);
   }
-#endif
 
   setupWebserverModeAP();
 
@@ -649,8 +652,8 @@ void loop()
 #ifdef COLOR
         clearEffect = true;
         acceptChange = true;
-        digitalWrite(STATUS_PIN_WIFI, HIGH);
 #endif
+        digitalWrite(STATUS_PIN_WIFI, HIGH);
         clearBufferFirebaseDataAll();
         checkFirebaseInit();
       }
@@ -679,24 +682,24 @@ void loop()
       {
         countConnectionFailure = 0;
       }
-#ifdef COLOR
       if (lostConnection)
       {
+#ifdef COLOR
         clearEffect = true;
+#endif
         lostConnection = false;
       }
+#ifdef COLOR
       acceptChange = true;
-      digitalWrite(STATUS_PIN_WIFI, HIGH);
 #endif
+      digitalWrite(STATUS_PIN_WIFI, HIGH);
     }
     else if (statusWL == WL_CONNECTION_LOST)
     {
       lostConnection = true;
       WiFi.reconnect();
       fbdoStream.tcpClient.networkReconnect();
-#ifdef COLOR
       digitalWrite(STATUS_PIN_WIFI, LOW);
-#endif
     }
     else if (statusWL == WL_IDLE_STATUS || statusWL == WL_DISCONNECTED || statusWL == WL_NO_SSID_AVAIL || statusWL == WL_NO_SHIELD)
     {
@@ -809,7 +812,7 @@ void loop()
 #endif
 
 #ifdef COLOR
-      eeprom.saveStyleColor(SINGLE);
+      eeprom.saveModeColor(SINGLE);
       requestRestart = true;
       clearEffect = true;
 #endif
@@ -895,7 +898,7 @@ void loop()
     clearEffectColor();
     clearEffect = false;
   }
-  if (modeRGB == SINGLE && !clearEffect)
+  if (eeprom.modeRGBs == SINGLE && !clearEffect)
   {
     if (acceptChange)
     {
@@ -914,7 +917,7 @@ void loop()
       acceptChange = false;
     }
   }
-  else if (modeRGB == AUTO && !clearEffect)
+  else if (eeprom.modeRGBs == AUTO && !clearEffect)
   {
     strip.setPixelColor(autoIndexI, Wheel(((autoIndexI * 256 / strip.numPixels()) + autoIndexJ) & 255));
     autoIndexI++;
@@ -949,24 +952,133 @@ void loop()
  *
  */
 
-void pingResponse(AsyncWebServerRequest *request)
+void controllDevices(AsyncWebServerRequest *request, JsonVariant &json)
 {
-  String response_str;
-  DynamicJsonDocument response_json(200);
-  JsonObject payload = response_json.to<JsonObject>();
+  if (!json.isNull())
+  {
+    JsonObject body = json.as<JsonObject>();
 
 #ifdef LOGIC
-  payload["value"]["btn_1"] = stateDevice[0];
-  payload["value"]["btn_2"] = stateDevice[1];
-  payload["value"]["btn_3"] = stateDevice[2];
+    String userId = body["uid"];
+    if (eeprom.readUserID() == userId)
+    {
+      String deviceId = body["did"];
+      if ((GEN_ID_BY_MAC + "-1").equals(deviceId))
+      {
+        bool state = body["state"];
+        controllDevice(1, state);
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Controll Switch 1");
+#endif
+      }
+      else if ((GEN_ID_BY_MAC + "-2").equals(deviceId))
+      {
+        bool state = body["state"];
+        controllDevice(2, state);
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Controll Switch 2");
+#endif
+      }
+      else if ((GEN_ID_BY_MAC + "-3").equals(deviceId))
+      {
+        bool state = body["state"];
+        controllDevice(3, state);
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Controll Switch 3");
+#endif
+      }
+      else
+      {
+        request->send(403, "application/json", "{\"message\":\"ID DEVICE NOT EXIST\"}");
+      }
+    }
+    else
+    {
+      request->send(403, "application/json", "{\"message\":\"YOU NO PERMISSION\"}");
+    }
 #endif
 
 #ifdef COLOR
-  JsonObject color;
-  payload["value"]["r"] = colorFultureState[0];
-  payload["value"]["g"] = colorFultureState[1];
-  payload["value"]["b"] = colorFultureState[2];
-  payload["value"]["a"] = colorFultureState[3];
+    String userId = body["uid"];
+    String deviceId = body["did"];
+    if (eeprom.readUserID() == userId && GEN_ID_BY_MAC == deviceId)
+    {
+      uint8_t mode = body["mode"];
+      if (mode != eeprom.modeRGBs)
+      {
+        eeprom.modeRGBs = mode;
+        eeprom.saveModeColor(eeprom.modeRGBs);
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Change Mode Color");
+#endif
+      }
+      if (eeprom.modeRGBs == SINGLE)
+      {
+        uint8_t colorR = body["value"]["r"];
+        uint8_t colorG = body["value"]["g"];
+        uint8_t colorB = body["value"]["b"];
+        uint8_t colorA = body["value"]["a"];
+        colorFultureState[0] = colorR;
+        colorFultureState[1] = colorG;
+        colorFultureState[2] = colorB;
+        colorFultureState[3] = colorA;
+        acceptChange = true;
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Change color style value of mde single");
+#endif
+      }
+      else if (eeprom.modeRGBs == AUTO)
+      {
+        clearEffect = true;
+#ifdef _DEBUG_
+        Serial.println("[DEBUG] Change color mode auto");
+#endif
+      }
+    }
+    else
+    {
+      request->send(403, "application/json", "{\"message\":\"YOU NO PERMISSION\"}");
+    }
+#endif
+
+    request->send(200, "application/json", "{\"message\":\"CONTROLL SUCCESSFULLY\"}");
+  }
+  else
+  {
+    request->send(401, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
+  }
+}
+
+void pingResponse(AsyncWebServerRequest *request)
+{
+  String response_str;
+  DynamicJsonDocument response_json(400);
+  JsonObject payload = response_json.to<JsonObject>();
+
+#ifdef LOGIC
+  payload["devices"][0]["id"] = GEN_ID_BY_MAC + "-1";
+  payload["devices"][0]["state"] = stateDevice[0];
+  payload["devices"][0]["type"] = TYPE_DEVICE;
+
+  payload["devices"][1]["id"] = GEN_ID_BY_MAC + "-2";
+  payload["devices"][1]["state"] = stateDevice[1];
+  payload["devices"][1]["type"] = TYPE_DEVICE;
+
+  payload["devices"][2]["id"] = GEN_ID_BY_MAC + "-3";
+  payload["devices"][2]["state"] = stateDevice[2];
+  payload["devices"][2]["type"] = TYPE_DEVICE;
+
+#endif
+
+#ifdef COLOR
+  payload["devices"][0]["id"] = GEN_ID_BY_MAC;
+  payload["devices"][0]["type"] = TYPE_DEVICE;
+  payload["devices"][0]["mode"] = eeprom.modeRGBs;
+
+  payload["devices"][0]["value"]["r"] = colorFultureState[0];
+  payload["devices"][0]["value"]["g"] = colorFultureState[1];
+  payload["devices"][0]["value"]["b"] = colorFultureState[2];
+  payload["devices"][0]["value"]["contrast"] = colorFultureState[3];
 #endif
 
   payload["uid"] = eeprom.readUserID();
@@ -1196,7 +1308,7 @@ void viewEEPROM()
   String dbNode = eeprom.DATABASE_NODE;
   String urlNode = eeprom.readDatabaseUrlNode();
 #ifdef COLOR
-  uint8_t styleColor = eeprom.readStyleColor();
+  uint8_t styleColor = eeprom.readModeColor();
 #endif
 
   Serial.println("[DEBUG] WIFI NAME = " + ssid + " | length = " + String(ssid.length()));
@@ -1505,15 +1617,6 @@ void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
 #ifdef COLOR
 // ..... define here ...
 
-void initSignal()
-{
-  pinMode(STATUS_PIN_START, OUTPUT);
-  pinMode(STATUS_PIN_WIFI, OUTPUT);
-
-  digitalWrite(STATUS_PIN_START, LOW);
-  digitalWrite(STATUS_PIN_WIFI, LOW);
-}
-
 uint32_t Wheel(byte WheelPos)
 {
   WheelPos = 255 - WheelPos;
@@ -1599,7 +1702,7 @@ void parserColorRGB(FirebaseStream &data, String prefix)
   acceptChange = true;
 }
 
-uint8_t parserColorStyle(FirebaseStream &data, bool init)
+uint8_t parserColorMode(FirebaseStream &data, bool init)
 {
   if (init)
   {
@@ -1619,6 +1722,15 @@ uint8_t parserColorStyle(FirebaseStream &data, bool init)
  *   [********* {START} DEFINE FUNCTION GENERAL *********]
  *
  */
+
+void initSignal()
+{
+  pinMode(STATUS_PIN_START, OUTPUT);
+  pinMode(STATUS_PIN_WIFI, OUTPUT);
+
+  digitalWrite(STATUS_PIN_START, LOW);
+  digitalWrite(STATUS_PIN_WIFI, LOW);
+}
 
 void initResetDeflaut()
 {
@@ -1740,13 +1852,13 @@ void streamCallback(FirebaseStream data)
   {
     if (dataPath == "/")
     {
-      modeRGB = parserColorStyle(data, true);
+      eeprom.modeRGBs = parserColorMode(data, true);
 
 #ifdef _DEBUG_
-      Serial.println("[DEBUG] Data Mode Color = " + String(modeRGB));
+      Serial.println("[DEBUG] Data Mode Color = " + String(eeprom.modeRGBs));
 #endif
-      eeprom.saveStyleColor(modeRGB);
-      if (modeRGB == SINGLE)
+      eeprom.saveModeColor(eeprom.modeRGBs);
+      if (eeprom.modeRGBs == SINGLE)
       {
         // Parser Data led RGB here
 
@@ -1769,12 +1881,12 @@ void streamCallback(FirebaseStream data)
   {
     if (dataPath.indexOf("mode") > 0)
     {
-      modeRGB = parserColorStyle(data);
-      eeprom.saveStyleColor(modeRGB);
+      eeprom.modeRGBs = parserColorMode(data);
+      eeprom.saveModeColor(eeprom.modeRGBs);
       clearEffect = true;
 
 #ifdef _DEBUG_
-      Serial.println("[DEBUG] Data Mode Color = " + String(modeRGB));
+      Serial.println("[DEBUG] Data Mode Color = " + String(eeprom.modeRGBs));
 #endif
     }
   }
@@ -1882,7 +1994,7 @@ void setupWebserverModeAP()
   // server.serveStatic("/", LittleFS, "/index.minify.html");
   // [GET] - ROUTE: '/reset-config' => Reset config WIFI
   // server.on("/scan-network", HTTP_GET, scanListNetwork);
-  // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
+  // [GET] - ROUTE: '/ping' => Pong to request
   server.on("/ping", HTTP_GET, pingResponse);
   // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
   server.on("/is-config", HTTP_GET, checkConfiguration);
@@ -1892,6 +2004,8 @@ void setupWebserverModeAP()
   server.on("/reset-config-wifi", HTTP_POST, resetConfigurationWifi);
   // [POST] - ROUTE: '/reset-config-firebase' => Reset config firebase
   server.on("/reset-config-firebase", HTTP_POST, resetConfigurationFirebase);
+  // [POST] - ROUTE: '/controll' => Controll Device
+  AsyncCallbackJsonWebHandler *handlerControllDevices = new AsyncCallbackJsonWebHandler("/controll", controllDevices);
   // [POST] - ROUTE: '/config-wifi' => Goto config WIFI save below EEPROM
   AsyncCallbackJsonWebHandler *handlerAddConfig = new AsyncCallbackJsonWebHandler("/config-wifi", addConfiguration);
   // [POST] - ROUTE: '/link-app' => Goto config firebase save below EEPROM
@@ -1902,6 +2016,7 @@ void setupWebserverModeAP()
   server.onNotFound(notFound);
 
   // START WEBSERVER
+  server.addHandler(handlerControllDevices);
   server.addHandler(handlerAddConfig);
   server.addHandler(handlerLinkApp);
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
