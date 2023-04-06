@@ -298,6 +298,23 @@ private:
 #define STATUS_START_DELAY_FLICKER_SHORT 100
 #define STATUS_START_DELAY_FLICKER_LONG 1000
 
+// => disable macro firebase
+
+// Comment to exclude Cloud Firestore
+#undef ENABLE_FIRESTORE
+
+// Comment to exclude Firebase Cloud Messaging
+#undef ENABLE_FCM
+
+// Comment to exclude Firebase Storage
+#undef ENABLE_FB_STORAGE
+
+// Comment to exclude Cloud Storage
+#undef ENABLE_GC_STORAGE
+
+// Comment to exclude Cloud Function for Firebase
+#undef ENABLE_FB_FUNCTIONS
+
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -380,6 +397,7 @@ bool lostConnection = false;
 bool blockBtnReset = false;
 bool disableBtnReset = false;
 bool globalRestart = false;
+bool lostStream = false;
 size_t timeoutWifi = 0;
 
 // => RAM NODE TYPE LOGIC
@@ -614,6 +632,19 @@ void setup()
 
   config.database_url = eeprom.databaseUrl;
   config.signer.test_mode = true;
+  // RTDB Stream reconnect timeout (interval) in ms (1 sec - 1 min) when RTDB Stream closed and want to resume.
+  config.timeout.rtdbStreamReconnect = 1 * 1000;
+  // WiFi reconnect timeout (interval) in ms (10 sec - 5 min) when WiFi disconnected.
+  config.timeout.wifiReconnect = 10 * 1000;
+  // Socket begin connection timeout (ESP32) or data transfer timeout (ESP8266) in ms (1 sec - 1 min).
+  config.timeout.socketConnection = 30 * 1000;
+  // Server response read timeout in ms (1 sec - 1 min).
+  config.timeout.serverResponse = 10 * 1000;
+  // RTDB Stream keep-alive timeout in ms (20 sec - 2 min) when no server's keep-alive event data received.
+  config.timeout.rtdbKeepAlive = 45 * 1000;
+  // RTDB Stream error notification timeout (interval) in ms (3 sec - 30 sec). It determines how often the readStream
+  // will return false (error) when it called repeatedly in loop.
+  config.timeout.rtdbStreamError = 3 * 1000;
 #ifdef ESP8266
   fbdoStream.setBSSLBufferSize(1024 /* Rx in bytes, 512 - 16384 */, 1024 /* Tx in bytes, 512 - 16384 */);
 #endif
@@ -1901,6 +1932,9 @@ void streamTimeoutCallback(bool timeout)
   {
     Serial.println("Stream timed out, resuming...\n");
   }
+  else
+  {
+  }
   if (!fbdoStream.httpConnected())
   {
     Serial_Printf("error code: %d, reason: %s\n\n", fbdoStream.httpCode(), fbdoStream.errorReason().c_str());
@@ -1936,10 +1970,10 @@ void checkFirebaseInit()
 
 #ifdef COLOR
       // ... init device COLOR
-      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/r", 0);
-      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/g", 0);
-      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/b", 0);
-      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/contrast", 0);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/r", colorFultureState[0]);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/g", colorFultureState[1]);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/b", colorFultureState[2]);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/value/contrast", colorFultureState[3]);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/type", TYPE_DEVICE);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "/mode", (uint8_t)SINGLE);
 #endif

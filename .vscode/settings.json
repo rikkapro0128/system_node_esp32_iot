@@ -3,6 +3,8 @@
   "files.associations": {
     "*.js": "javascriptreact",
     "*.html": "tailwindcss",
-    "new": "cpp"
+    "new": "cpp",
+    "cstddef": "cpp",
+    "limits": "cpp"
   }
 }
