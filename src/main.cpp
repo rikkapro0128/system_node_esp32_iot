@@ -1,5 +1,6 @@
+#include <Macro.h>
+
 #include <esp_task_wdt.h>
-#include <EEPROM.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <addons/RTDBHelper.h>
@@ -8,13 +9,11 @@
 #include "AsyncJson.h"
 #include <ESPAsyncWebServer.h>
 
-/**
- * ********* MACRO DEFINE NODE TYPE *********************************************************************************************************************************************************************************************************************************
- */
+#ifdef COLOR
+#include <Adafruit_NeoPixel.h>
+#endif
 
-// #define LOGIC
-#define COLOR
-// #define DIMMER
+#include <MiruEEPROM.h>
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
@@ -26,324 +25,13 @@
 #include <ESPAsyncTCP.h>
 #endif
 
-#ifdef COLOR
-#include <Adafruit_NeoPixel.h>
-#endif
-
-/**
- * ********* CLASS DEFINE *********************************************************************************************************************************************************************************************************************************
- */
-
-class EepromMiru
+typedef enum
 {
-
-public:
-  String DATABASE_NODE = "";
-  String databaseUrl = "";
-  bool canAccess = false;
-#ifdef COLOR
-  uint8_t modeRGBs = 0;
-  uint8_t numsLed = 0;
-#endif
-
-  EepromMiru(int size, String url_database = "")
-  {
-    this->size = size;
-    this->databaseUrl = url_database;
-  }
-
-  void begin()
-  {
-    this->DATABASE_NODE = this->readDatabaseUrlNode();
-    this->checkAccess();
-#ifdef COLOR
-    this->modeRGBs = this->readModeColor();
-    this->numsLed = this->readNumsLed();
-#endif
-  }
-
-  void resetAll()
-  {
-    EEPROM.begin(this->size);
-    for (unsigned int i = 0; i < this->size; i++)
-    {
-      EEPROM.write(i, NULL);
-      delay(5);
-    }
-    EEPROM.end();
-    this->updateDatabaseNode("", "");
-  }
-
-  String readRaw()
-  {
-    EEPROM.begin(this->size);
-    String temp;
-    for (unsigned int i = 0; i < this->size; i++)
-    {
-      uint8_t num = EEPROM.read(i);
-      temp = temp + String((char)num);
-    }
-    EEPROM.end();
-    return temp;
-  }
-
-#ifdef COLOR
-  bool saveModeColor(uint8_t mode)
-  {
-    EEPROM.begin(this->size);
-    this->modeRGBs = mode;
-    EEPROM.write(this->addr_ModeColor, mode);
-    EEPROM.commit();
-    EEPROM.end();
-    return true;
-  }
-  bool saveNumsLed(uint8_t nums)
-  {
-    if (nums > 0 && nums < 1000)
-    {
-      EEPROM.begin(this->size);
-      this->numsLed = nums;
-      EEPROM.write(this->addr_NumsLed, nums);
-      EEPROM.commit();
-      EEPROM.end();
-      return true;
-    }
-    else
-    {
-      return false;
-    }
-  }
-#endif
-  bool saveSSID(String ssid)
-  {
-    return this->checkWrite(this->addr_ssid, ssid, this->ssid);
-  }
-  bool savePassword(String password)
-  {
-    return this->checkWrite(this->addr_password, password, this->password);
-  }
-  bool saveUserID(String user_id)
-  {
-    bool state = this->checkWrite(this->addr_userID, user_id, this->userID);
-    this->updateDatabaseNode(user_id, this->readNodeID());
-    return state;
-  }
-  bool saveNodeID(String node_id)
-  {
-    bool state = this->checkWrite(this->addr_NodeID, node_id, this->NodeID);
-    this->updateDatabaseNode(this->readUserID(), node_id);
-    return state;
-  }
-  bool saveDatabaseUrl(String url)
-  {
-    this->maxCharacter = 120;
-    bool state = this->checkWrite(this->addr_databaseUrl, url, this->databaseUrl);
-    this->maxCharacter = 0;
-    return state;
-  }
-
-#ifdef COLOR
-  uint8_t readModeColor()
-  {
-    EEPROM.begin(this->size);
-    uint8_t character = EEPROM.read(this->addr_ModeColor);
-    EEPROM.end();
-    return character;
-  }
-  uint8_t readNumsLed()
-  {
-    EEPROM.begin(this->size);
-    uint8_t nums = EEPROM.read(this->addr_NumsLed);
-    EEPROM.end();
-    return nums > 0 && nums < 1000 ? nums : 0;
-  }
-#endif
-  String readSSID()
-  {
-    return this->checkRead(this->addr_ssid, this->ssid);
-  }
-  String readPassword()
-  {
-    return this->checkRead(this->addr_password, this->password);
-  }
-  String readNodeID()
-  {
-    return this->checkRead(this->addr_NodeID, this->NodeID);
-  }
-  String readUserID()
-  {
-    return this->checkRead(this->addr_userID, this->userID);
-  }
-  String readDatabaseUrl()
-  {
-    this->maxCharacter = 120;
-    String temp = this->checkRead(this->addr_databaseUrl, this->databaseUrl);
-    this->maxCharacter = 0;
-    return temp;
-  }
-  String readDatabaseUrlNode()
-  {
-    return String("/user-" + this->readUserID() + "/nodes/node-" + this->readNodeID());
-  }
-
-private:
-  unsigned int size = 1024;
-  String ssid = "";
-  int addr_ssid = 0;
-  String password = "";
-  int addr_password = 50;
-  String userID = "";
-  int addr_userID = 100;
-  String NodeID = "";
-  int addr_NodeID = 150;
-  int addr_databaseUrl = 200;
-  uint8_t maxCharacter = 0;
-#ifdef COLOR
-  int addr_ModeColor = 320;
-  int addr_NumsLed = 325;
-#endif
-
-  String checkRead(int addr, String &cacheValue)
-  {
-    if (cacheValue.length() > 0)
-    {
-      return cacheValue;
-    }
-    else
-    {
-      String temp = this->readKey(addr);
-      if (temp != cacheValue)
-      {
-        cacheValue = temp;
-      }
-      return temp;
-    }
-  }
-
-  String readKey(int addr)
-  {
-    EEPROM.begin(this->size);
-    String temp = "";
-    for (unsigned int i = addr; i < this->maxCharacter || (addr + 50); i++)
-    {
-      uint8_t character = EEPROM.read(i);
-      if (character <= 126 && character >= 32)
-      {
-        temp = temp + String((char)character);
-      }
-      else
-      {
-        break;
-      }
-    }
-    EEPROM.end();
-    return temp;
-  }
-
-  bool writeKey(int addr, String tmp, uint8_t limit = 50)
-  {
-    int len_str = tmp.length();
-    uint8_t checkLimit = this->maxCharacter ? this->maxCharacter : limit;
-    if (len_str > checkLimit)
-    {
-      return false;
-    }
-    else
-    {
-
-      EEPROM.begin(this->size);
-      int start = 0;
-      for (uint8_t i = addr; i < (addr + checkLimit); i++)
-      {
-        if (i < (addr + len_str))
-        {
-          EEPROM.write(i, (uint8_t)tmp[start]);
-          delay(5);
-          start++;
-        }
-        else
-        {
-          EEPROM.write(i, NULL);
-          delay(5);
-        }
-      }
-      EEPROM.commit();
-      EEPROM.end();
-      return true;
-    }
-  }
-
-  bool checkWrite(int addr, String tmp, String &cached)
-  {
-    bool check = this->writeKey(addr, tmp);
-    if (check)
-    {
-      cached = tmp;
-    }
-    return check;
-  }
-
-  void updateDatabaseNode(String uid = "", String nid = "")
-  {
-    this->DATABASE_NODE = String("/user-" + uid + "/nodes/node-" + nid);
-    this->checkAccess();
-  }
-  void checkAccess()
-  {
-    String nodeId = this->readNodeID();
-    String userId = this->readUserID();
-    String dbURL = this->readDatabaseUrl();
-    if (nodeId.length() > 0 && userId.length() > 0 && dbURL.length() > 0)
-    {
-      this->canAccess = true;
-    }
-    else
-    {
-      this->canAccess = false;
-    }
-  }
-};
-
-/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
-
-/**
- * ********* MACRO GENERAL *********************************************************************************************************************************************************************************************************************************
- */
-
-#define WDT_TIMEOUT 5 // second
-
-#define SSL_HANDSHAKE_REQUIRE 100
-#define MAX_CONNECTION_FAILURE 5
-
-#define PIN_RESET_DEFLAUT GPIO_NUM_13
-
-#define STATUS_PIN_START GPIO_NUM_16
-#define STATUS_PIN_WIFI GPIO_NUM_17
-
-#define TIME_RESET_DEFAULT 5000
-#define POOLING_CHECK_CONNECT_AP 5000
-#define POOLING_CHECK_STREAM 5200
-#define POOLING_RESTART_CONNECT_AP 700
-
-#define STATUS_START_DELAY_FLICKER_SHORT 100
-#define STATUS_START_DELAY_FLICKER_LONG 1000
-
-// => disable macro firebase
-
-// Comment to exclude Cloud Firestore
-#undef ENABLE_FIRESTORE
-
-// Comment to exclude Firebase Cloud Messaging
-#undef ENABLE_FCM
-
-// Comment to exclude Firebase Storage
-#undef ENABLE_FB_STORAGE
-
-// Comment to exclude Cloud Storage
-#undef ENABLE_GC_STORAGE
-
-// Comment to exclude Cloud Function for Firebase
-#undef ENABLE_FB_FUNCTIONS
+  SSID_TOO_LONG = 0,
+  PASSWORD_TOO_LONG = 1,
+  CONFIG_NOT_FOUND = 2,
+  CONFIG_DONE = 3,
+} status_config_wifi;
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
@@ -386,18 +74,9 @@ typedef enum INDEX_COLOR
 };
 
 #define DI GPIO_NUM_27
-#define NUMS_LED 16
+#define NUMS_LED 0
 
 #endif
-
-/* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
-
-/**
- * ********* MODE DEV & DEPLOY *********************************************************************************************************************************************************************************************************************************
- */
-
-#define _DEBUG_
-#define _RELEASE_
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
@@ -431,6 +110,19 @@ bool globalRestart = false;
 bool lostStream = false;
 bool disconnected = false;
 size_t timeoutWifi = 0;
+bool wifiIsConnected = false;
+bool requestConfigWifi = false;
+bool duringConfigWifi = false;
+
+IPAddress ip(192, 168, 4, 1);
+IPAddress gateway(192, 168, 1, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+struct
+{
+  String ssid;
+  String password;
+} WifiConfig;
 
 // => RAM NODE TYPE LOGIC
 #ifdef LOGIC
@@ -462,6 +154,7 @@ static const char *TYPE_DEVICE = "COLOR";
 
 uint8_t colorPresentState[4] = {0, 0, 255, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
 uint8_t colorFultureState[4] = {0, 0, 255, 0}; // => rgb(0 -> 255, 0 -> 255, 0 -> 255, 0 -> 100)
+int numLedPresent = 0;
 bool acceptChange = false;
 bool clearEffect = false;
 bool requestRestart = false;
@@ -497,7 +190,7 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMS_LED, DI, NEO_GRB + NEO_KHZ800);
 
 // => DEBUG FUNC
 
-#ifdef _DEBUG_
+#ifdef DEBUG
 void viewEEPROM();
 #endif
 
@@ -516,6 +209,8 @@ void restartEsp(AsyncWebServerRequest *request);
 
 // => FUNC EXECUTE GENERAL
 
+status_config_wifi connectWifiByConfig(String ssid, String password = "");
+wl_status_t waitConnectWifi();
 void initWatchdogTimer();
 bool removeNodeEsp();
 void initSignal();
@@ -539,7 +234,7 @@ unsigned int strLength(const char *str);
  */
 
 #ifdef LOGIC
-#ifdef _DEBUG_
+#ifdef DEBUG
 void PrintListTimer();
 #endif
 void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
@@ -563,9 +258,10 @@ bool fadeColor(INDEX_COLOR index);
 void setColorChainRGBA(uint32_t c, uint8_t a);
 void parserColorRGB(FirebaseStream &data, String prefix = "");
 uint8_t parserColorMode(FirebaseStream &data, bool init = false);
-uint8_t parserNumsLed(FirebaseStream &data, bool init = false);
+int parserNumsLed(FirebaseStream &data, bool init = false);
 uint32_t Wheel(byte WheelPos);
 void clearEffectColor(uint8_t brightness = 100);
+void clearColor();
 
 #endif
 
@@ -607,11 +303,11 @@ void setup()
   GEN_ID_BY_MAC.replace(":", "");
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC);
 
-#ifdef _DEBUG_
-  Serial.begin(115200);
+#ifdef DEBUG
+  Serial.begin(115200); // init serial port for mode DEBUG
 #endif
-#ifdef _RELEASE_
-  Serial.begin(115200);
+#ifdef RELEASE
+  Serial.begin(115200); // init serial port for mode RELEASE
 #endif
 
 #ifdef COLOR
@@ -620,12 +316,12 @@ void setup()
   strip.show();
 #endif
 
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("");
   Serial.println("[---PROGRAM START---]");
 #endif
 
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("[DEBUG] - Init Watchdog timer");
 #endif
   initWatchdogTimer();
@@ -633,40 +329,40 @@ void setup()
   configTime(0, 0, ntpServer);
   eeprom.begin();
 
-#ifdef _DEBUG_
+#ifdef DEBUG
   viewEEPROM();
 #endif
 
-#ifdef _DEBUG_
-  Serial.printf("[DEBUG] - Init Number Led Strip RGB - %d\n", eeprom.numsLed);
+#ifdef DEBUG
+  Serial.println("[DEBUG] - Clear color led");
 #endif
-  if (eeprom.numsLed > 0 && eeprom.numsLed < 1000)
+#ifdef COLOR
+  clearColor();
+#endif
+
+#ifdef DEBUG
+  Serial.printf("[DEBUG] - Init Number Led Strip RGB - %d\n", eeprom.readNumsLed());
+#endif
+#ifdef COLOR
+  if (eeprom.readNumsLed() > 0 && eeprom.readNumsLed() < 1000)
   {
-    strip.updateLength((uint16_t)eeprom.numsLed);
+    strip.updateLength((uint16_t)eeprom.readNumsLed());
   }
+#endif
 
   WiFi.hostname(String(CHost + GEN_ID_BY_MAC));
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.persistent(true);
+  WiFi.mode(WIFI_MODE_AP);
+  WiFi.softAPConfig(ip, gateway, subnet);
   WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC).c_str(), mode_ap_pass.c_str());
 
-#ifdef _DEBUG_
+#ifdef DEBUG
   IPAddress IP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
+  Serial.printf("AP IP address: %s\n", IP.toString());
 #endif
 
   setupWifiModeStation();
 
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    if (timeoutWifi > 12)
-    {
-      WiFi.disconnect(true);
-      break;
-    }
-    timeoutWifi++;
-    delay(500);
-  }
+  waitConnectWifi();
 
   if (WiFi.status() == WL_CONNECTED)
   {
@@ -679,28 +375,31 @@ void setup()
 
   setupWebserverModeAP();
 
-  config.database_url = eeprom.databaseUrl;
-  config.signer.test_mode = true;
-  // RTDB Stream reconnect timeout (interval) in ms (1 sec - 1 min) when RTDB Stream closed and want to resume.
-  config.timeout.rtdbStreamReconnect = 1 * 1000;
-  // WiFi reconnect timeout (interval) in ms (10 sec - 5 min) when WiFi disconnected.
-  config.timeout.wifiReconnect = 10 * 1000;
-  // Socket begin connection timeout (ESP32) or data transfer timeout (ESP8266) in ms (1 sec - 1 min).
-  config.timeout.socketConnection = 30 * 1000;
-  // Server response read timeout in ms (1 sec - 1 min).
-  config.timeout.serverResponse = 10 * 1000;
-  // RTDB Stream keep-alive timeout in ms (20 sec - 2 min) when no server's keep-alive event data received.
-  config.timeout.rtdbKeepAlive = 45 * 1000;
-  // RTDB Stream error notification timeout (interval) in ms (3 sec - 30 sec). It determines how often the readStream
-  // will return false (error) when it called repeatedly in loop.
-  config.timeout.rtdbStreamError = 3 * 1000;
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    config.database_url = eeprom.databaseUrl;
+    config.signer.test_mode = true;
+    // RTDB Stream reconnect timeout (interval) in ms (1 sec - 1 min) when RTDB Stream closed and want to resume.
+    config.timeout.rtdbStreamReconnect = 1 * 1000;
+    // WiFi reconnect timeout (interval) in ms (10 sec - 5 min) when WiFi disconnected.
+    config.timeout.wifiReconnect = 10 * 1000;
+    // Socket begin connection timeout (ESP32) or data transfer timeout (ESP8266) in ms (1 sec - 1 min).
+    config.timeout.socketConnection = 30 * 1000;
+    // Server response read timeout in ms (1 sec - 1 min).
+    config.timeout.serverResponse = 10 * 1000;
+    // RTDB Stream keep-alive timeout in ms (20 sec - 2 min) when no server's keep-alive event data received.
+    config.timeout.rtdbKeepAlive = 45 * 1000;
+    // RTDB Stream error notification timeout (interval) in ms (3 sec - 30 sec). It determines how often the readStream
+    // will return false (error) when it called repeatedly in loop.
+    config.timeout.rtdbStreamError = 3 * 1000;
 #ifdef ESP8266
-  fbdoStream.setBSSLBufferSize(1024 /* Rx in bytes, 512 - 16384 */, 1024 /* Tx in bytes, 512 - 16384 */);
+    fbdoStream.setBSSLBufferSize(1024 /* Rx in bytes, 512 - 16384 */, 1024 /* Tx in bytes, 512 - 16384 */);
 #endif
 
-  Firebase.begin(&config, &auth);
-  Firebase.reconnectWiFi(true);
-  checkFirebaseInit();
+    Firebase.begin(&config, &auth);
+    Firebase.reconnectWiFi(true);
+    checkFirebaseInit();
+  }
 }
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -711,98 +410,6 @@ void loop()
   if (globalRestart)
   {
     ESP.restart();
-  }
-
-  if (restartConfigWifi) // restart & init new connection to access point
-  {
-    if (millis() - poolingReconnectWifi > POOLING_RESTART_CONNECT_AP)
-    {
-      uint8_t statusWL = WiFi.status();
-#ifdef _DEBUG_
-      Serial.println("[Restart] Status Wifi " + String(statusWL));
-#endif
-      poolingReconnectWifi = millis();
-      if (statusWL == WL_CONNECTED)
-      {
-        if (countConnectionFailure > 0)
-        {
-          countConnectionFailure = 0;
-        }
-#ifdef COLOR
-        clearEffect = true;
-        acceptChange = true;
-#endif
-        digitalWrite(STATUS_PIN_WIFI, HIGH);
-        clearBufferFirebaseDataAll();
-        checkFirebaseInit();
-      }
-      else if (statusWL == WL_NO_SHIELD)
-      {
-        setupWifiModeStation();
-      }
-      else
-      {
-        lostConnection = true;
-        WiFi.reconnect();
-      }
-      restartConfigWifi = false;
-    }
-  }
-
-  if (millis() - wifiStatus > POOLING_CHECK_CONNECT_AP && !restartConfigWifi) // check status connect, reconnect if this conection failure!
-  {
-    uint8_t statusWL = WiFi.status();
-    wifiStatus = millis();
-#ifdef _DEBUG_
-    Serial.println("[Pooling check] Status Wifi " + String(statusWL));
-#endif
-    if (statusWL == WL_CONNECTED)
-    {
-      disconnected = false;
-      if (countConnectionFailure > 0)
-      {
-        countConnectionFailure = 0;
-      }
-      if (lostConnection)
-      {
-#ifdef COLOR
-        clearEffect = true;
-#endif
-        lostConnection = false;
-      }
-#ifdef COLOR
-      acceptChange = true;
-#endif
-      digitalWrite(STATUS_PIN_WIFI, HIGH);
-    }
-    else if (statusWL == WL_CONNECTION_LOST)
-    {
-      lostConnection = true;
-      WiFi.reconnect();
-      fbdoStream.tcpClient.networkReconnect();
-      digitalWrite(STATUS_PIN_WIFI, LOW);
-    }
-    else if (statusWL == WL_IDLE_STATUS || statusWL == WL_DISCONNECTED || statusWL == WL_NO_SSID_AVAIL || statusWL == WL_NO_SHIELD || statusWL == WL_CONNECT_FAILED)
-    {
-      if (countConnectionFailure < MAX_CONNECTION_FAILURE)
-      {
-        restartConfigWifi = true;
-      }
-      else
-      {
-        if (!disconnected)
-        {
-          if (WiFi.disconnect(true, true))
-          {
-            disconnected = true;
-#ifdef _DEBUG_
-            Serial.println("[Diabled] Clear cached wifi successfully! ");
-#endif
-          }
-        }
-      }
-      countConnectionFailure++;
-    }
   }
 
   if (millis() - blinkStart > STATUS_START_DELAY_FLICKER_SHORT) // this is animation status run mode
@@ -834,14 +441,14 @@ void loop()
     {
       timeStartResetPinDetach = millis();
       blockBtnReset = true;
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Start btn HIGH");
 #endif
     }
 
     if (digitalRead(PIN_RESET_DEFLAUT) == HIGH && blockBtnReset)
     {
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Start btn LOW");
 #endif
       blockBtnReset = false;
@@ -849,7 +456,7 @@ void loop()
 
     if (millis() - timeStartResetPinDetach > TIME_RESET_DEFAULT && blockBtnReset)
     {
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Start Reset Default");
 #endif
 
@@ -871,7 +478,7 @@ void loop()
       }
       else
       {
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Not found node url to remove!");
 #endif
       }
@@ -890,16 +497,8 @@ void loop()
     }
   }
 
-  if (millis() - poolingCheckStream > POOLING_CHECK_STREAM)
-  {
-    poolingCheckStream = millis();
-#ifdef _DEBUG_
-    Serial.printf("[DEBUG] State Stream - [%s]\n", fbdoStream.isStream() ? "true" : "false");
-#endif
-  }
-
 #ifdef LOGIC
-#ifdef _RELEASE_
+#ifdef RELEASE
   if (Serial.available() > 0)
   {
     uartPicControl = (int)Serial.parseInt();
@@ -934,15 +533,15 @@ void loop()
   }
 #endif
   if ((millis() - sendDataPrevMillis > 2500 || sendDataPrevMillis == 0))
-  {
+  { 
     sendDataPrevMillis = millis();
     if (timerStack[0][1] != NULL && timeControll)
     {
-#ifdef _DEBUG_
+#ifdef DEBUG
       PrintListTimer();
 #endif
       epochTime = Get_Epoch_Time();
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("TimeStamp = " + String(epochTime));
 #endif
       bool expire = timerStack[0][1] > epochTime && timerStack[0][1] != NULL ? false : true;
@@ -951,14 +550,14 @@ void loop()
         unsigned long rangeTimer = epochTime - timerStack[0][1];
         if (rangeTimer < 4)
         {
-#ifdef _RELEASE_
+#ifdef RELEASE
           bool state = timerStack[0][2] == 1 ? true : timerStack[0][2] == 2           ? false
                                                   : stateDevice[timerStack[0][0] - 1] ? false
                                                                                       : true;
           controllDevice(timerStack[0][0], state, true);
 #endif
         }
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.printf("Controll timer = %d\n", timerStack[0][1]);
         Serial.printf("[Epoch Time] = %d", rangeTimer);
 #endif
@@ -994,7 +593,7 @@ void loop()
       acceptChange = false;
     }
   }
-  else if (eeprom.modeRGBs == AUTO && !clearEffect)
+  else if (eeprom.modeRGBs == AUTO && !clearEffect && strip.numPixels() != 0)
   {
     strip.setPixelColor(autoIndexI, Wheel(((autoIndexI * 256 / strip.numPixels()) + autoIndexJ) & 255));
     autoIndexI++;
@@ -1013,7 +612,7 @@ void loop()
 
 #endif
 
-#ifdef _DEBUG_
+#ifdef DEBUG
   if (millis() - timeIntervalCheckRamSize > 2500)
   {
     timeIntervalCheckRamSize = millis();
@@ -1046,7 +645,7 @@ void controllDevices(AsyncWebServerRequest *request, JsonVariant &json)
       {
         bool state = body["state"];
         controllDevice(1, state);
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Controll Switch 1");
 #endif
       }
@@ -1054,7 +653,7 @@ void controllDevices(AsyncWebServerRequest *request, JsonVariant &json)
       {
         bool state = body["state"];
         controllDevice(2, state);
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Controll Switch 2");
 #endif
       }
@@ -1062,7 +661,7 @@ void controllDevices(AsyncWebServerRequest *request, JsonVariant &json)
       {
         bool state = body["state"];
         controllDevice(3, state);
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Controll Switch 3");
 #endif
       }
@@ -1087,7 +686,7 @@ void controllDevices(AsyncWebServerRequest *request, JsonVariant &json)
       {
         eeprom.modeRGBs = mode;
         eeprom.saveModeColor(eeprom.modeRGBs);
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Change Mode Color");
 #endif
       }
@@ -1102,14 +701,14 @@ void controllDevices(AsyncWebServerRequest *request, JsonVariant &json)
         colorFultureState[2] = colorB;
         colorFultureState[3] = colorA;
         acceptChange = true;
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Change color style value of mde single");
 #endif
       }
       else if (eeprom.modeRGBs == AUTO)
       {
         clearEffect = true;
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Change color mode auto");
 #endif
       }
@@ -1187,14 +786,14 @@ void linkAppication(AsyncWebServerRequest *request, JsonVariant &json)
   {
     // if (eeprom.canAccess)
     // {
-#ifdef _DEBUG_
+#ifdef DEBUG
     Serial.println("DB Node = " + eeprom.DATABASE_NODE);
     Serial.println("Wifi Status = " + String(WiFi.status()));
 #endif
     JsonObject body = json.as<JsonObject>();
     String idUser = body["idUser"];
     String idNode = body["idNode"];
-#ifdef _DEBUG_
+#ifdef DEBUG
     Serial.println("Link App: idUser = " + idUser + " - idNode = " + idNode);
 #endif
     if (idUser.length() > 0 && idNode.length() > 0)
@@ -1211,7 +810,7 @@ void linkAppication(AsyncWebServerRequest *request, JsonVariant &json)
       if (stateSaveNodeId && stateSaveUserId)
       {
         clearBufferFirebaseDataAll();
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("--- Start Init New Firebase Stream ---");
 #endif
         checkFirebaseInit();
@@ -1276,14 +875,58 @@ void addConfiguration(AsyncWebServerRequest *request, JsonVariant &json)
 
     String ssid = body["ssid"];
     String password = body["password"];
-    eeprom.saveSSID(ssid);
-    eeprom.savePassword(password);
-    // Serial.println("[Save config EEPROM]");
-    request->send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
-    countConnectionFailure = 0;
-    disconnected = false;
-    setupWifiModeStation();
-    restartConfigWifi = true;
+
+    String ssidOld = eeprom.readSSID();
+    String passwordOld = eeprom.readPassword();
+
+    ssid.trim();
+    password.trim();
+
+    uint8_t ssidLen = ssid.length();
+    uint8_t passwordLen = password.length();
+
+    bool change = false;
+
+#ifdef DEBUG
+    Serial.printf("[DEBUG] SSID: %s, PASSWORD: %s\n", ssid.c_str(), password.c_str());
+#endif
+
+    if (ssidLen > 0 && passwordLen > 0)
+    {
+
+      if (ssidLen > 32)
+      {
+        request->send(400, "application/json", "{\"message\":\"SSID WIFI TOO LONG\"}");
+        return;
+      }
+      else if (passwordLen > 64)
+      {
+        request->send(400, "application/json", "{\"message\":\"PASSWORD WIFI TOO LONG\"}");
+        return;
+      }
+
+      request->send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
+
+      if (ssid != ssidOld)
+      {
+        eeprom.saveSSID(ssid);
+        change = true;
+      }
+
+      if(password != passwordOld) {
+        eeprom.savePassword(password);
+        change = true;
+      }
+
+      if(change) {
+        ESP.restart();
+      }
+
+    }
+    else
+    {
+      request->send(400, "application/json", "{\"message\":\"PAYLOAD WIFI CONFIG INVALID\"}");
+    }
   }
   else
   {
@@ -1296,7 +939,7 @@ void resetConfigurationWifi(AsyncWebServerRequest *request)
 {
   String ssid = eeprom.readSSID();
   String password = eeprom.readPassword();
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("reset config: wifi = " + ssid + " - password = " + password);
 #endif
   if (ssid.length() > 0 && password.length() > 0)
@@ -1332,7 +975,7 @@ void checkLinkAppication(AsyncWebServerRequest *request)
 {
   String nodeID = eeprom.readNodeID();
   String userID = eeprom.readUserID();
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("check link app: nodeID = " + nodeID + " - userID = " + userID);
 #endif
   if (nodeID.length() && userID.length())
@@ -1358,7 +1001,7 @@ void checkConfiguration(AsyncWebServerRequest *request)
 {
   String ssid = eeprom.readSSID();
   String password = eeprom.readPassword();
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("check config: ssid = " + ssid + " - password = " + password);
 #endif
   if (ssid.length() > 0 && password.length() > 0)
@@ -1389,7 +1032,7 @@ void checkConfiguration(AsyncWebServerRequest *request)
  *
  */
 
-#ifdef _DEBUG_
+#ifdef DEBUG
 
 void checkRam()
 {
@@ -1407,6 +1050,7 @@ void viewEEPROM()
   String urlNode = eeprom.readDatabaseUrlNode();
 #ifdef COLOR
   uint8_t styleColor = eeprom.readModeColor();
+  // int numLed = eeprom.readNumsLed();
 #endif
 
   Serial.println("[DEBUG] WIFI NAME = " + ssid + " | length = " + String(ssid.length()));
@@ -1417,6 +1061,7 @@ void viewEEPROM()
   Serial.println("[DEBUG] WIFI NODE ID = " + nodeID + " | length = " + String(nodeID.length()));
 #ifdef COLOR
   Serial.println("[DEBUG] MODE COLOR = " + String(styleColor));
+  // Serial.println("[DEBUG] NUMs LED = " + String(numLed));
 #endif
 }
 
@@ -1431,7 +1076,7 @@ void viewEEPROM()
 
 #ifdef LOGIC
 
-#ifdef _DEBUG_
+#ifdef DEBUG
 
 void PrintListTimer()
 {
@@ -1554,7 +1199,7 @@ void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREB
           }
         }
       }
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DELETED PATH] = " + pathRemove);
       Serial.printf("[TIME END] = %d", millis());
 #endif
@@ -1619,7 +1264,7 @@ void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice)
 
 void controllDevice(uint8_t numDevice, bool state, bool syncFirebase, bool ignore)
 {
-#ifdef _RELEASE_
+#ifdef RELEASE
   blockControl = true;
   if (!ignore)
   {
@@ -1759,24 +1404,24 @@ void setColorChainRGBA(uint32_t c, uint8_t a)
   strip.show();
 }
 
+void clearColor()
+{
+  for (uint16_t i = 0; i < strip.numPixels(); i++)
+  {
+    strip.setPixelColor(i, strip.Color(0, 0, 0));
+  }
+  strip.show();
+}
+
 void clearEffectColor(uint8_t brightness)
 {
   strip.setBrightness(brightness);
   for (uint16_t i = 0; i < strip.numPixels(); i++)
   {
+    esp_task_wdt_reset();
     strip.setPixelColor(i, strip.Color(0, 0, 0));
-    strip.show();
-    delay(10);
   }
-  if (requestRestart)
-  {
-    globalRestart = true;
-  }
-  colorPresentState[0] = 0;
-  colorPresentState[1] = 0;
-  colorPresentState[2] = 0;
-  colorPresentState[3] = 0;
-  acceptChange = true;
+  strip.show();
 }
 
 void parserColorRGB(FirebaseStream &data, String prefix)
@@ -1813,16 +1458,16 @@ uint8_t parserColorMode(FirebaseStream &data, bool init)
   }
 }
 
-uint8_t parserNumsLed(FirebaseStream &data, bool init)
+int parserNumsLed(FirebaseStream &data, bool init)
 {
   if (init)
   {
     data.jsonObject().get(deviceJson, "nums-Led");
-    return deviceJson.to<uint8_t>();
+    return deviceJson.intValue;
   }
   else
   {
-    return data.to<uint8_t>();
+    return data.intData();
   }
 }
 
@@ -1871,7 +1516,7 @@ void setupStreamFirebase()
 #endif
 #ifdef COLOR
   pathStream = eeprom.DATABASE_NODE + "/devices/device-" + GEN_ID_BY_MAC;
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("[DEBUG] Path Stream = " + pathStream);
 #endif
 #endif
@@ -1879,13 +1524,13 @@ void setupStreamFirebase()
   {
     if (!Firebase.RTDB.beginStream(&fbdoStream, pathStream))
     {
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial_Printf("stream begin error, %s\n\n", fbdoStream.errorReason().c_str());
 #endif
     }
     else
     {
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println(String("Stream OK!"));
 #endif
     }
@@ -1894,7 +1539,7 @@ void setupStreamFirebase()
 
 void streamCallback(FirebaseStream data)
 {
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
                 data.streamPath().c_str(),
                 data.dataPath().c_str(),
@@ -1925,7 +1570,7 @@ void streamCallback(FirebaseStream data)
   {
     if (dataPath.equals("/") && isFirst)
     { // execute init state all device
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("Init Status");
 #endif
       parserTimerJson(data, 1);
@@ -1946,14 +1591,14 @@ void streamCallback(FirebaseStream data)
       sortTimer(timerStack, indexTimerStack);
       timeControll = true;
     }
-#ifdef _DEBUG_
+#ifdef DEBUG
     PrintListTimer();
 #endif
   }
   else if (dataType == d_null)
   {
     removeTimer(timerStack, indexTimerStack, dataPath.substring(29, 49), true);
-#ifdef _DEBUG_
+#ifdef DEBUG
     PrintListTimer();
 #endif
   }
@@ -1965,17 +1610,32 @@ void streamCallback(FirebaseStream data)
     if (dataPath == "/")
     {
 
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Data Mode Color = " + String(eeprom.modeRGBs));
 #endif
-      eeprom.saveModeColor(parserColorMode(data, true));
-      eeprom.saveNumsLed(parserNumsLed(data, true));
+      int numsLed = parserNumsLed(data, true);
+      uint8_t modeColor = parserColorMode(data, true);
+
+#ifdef DEBUG
+      Serial.println("[DEBUG] Data Num Led Change = " + String(numsLed));
+#endif
+      if (eeprom.readModeColor() != modeColor)
+      {
+        eeprom.saveModeColor(modeColor);
+      }
+
+      if (numsLed != 0)
+      {
+        // eeprom.saveNumsLed(numsLed);
+        strip.updateLength((uint16_t)numsLed);
+        clearEffect = true;
+      }
 
       if (eeprom.modeRGBs == SINGLE)
       {
         // Parser Data led RGB here
 
-#ifdef _DEBUG_
+#ifdef DEBUG
         Serial.println("[DEBUG] Data Color = " + data.jsonString());
 #endif
         parserColorRGB(data, "value/");
@@ -1984,7 +1644,7 @@ void streamCallback(FirebaseStream data)
     else if (dataPath.indexOf("value") > 0)
     {
 
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Data Color = " + data.jsonString());
 #endif
       parserColorRGB(data);
@@ -1996,21 +1656,52 @@ void streamCallback(FirebaseStream data)
     {
       eeprom.modeRGBs = parserColorMode(data);
       eeprom.saveModeColor(eeprom.modeRGBs);
-      clearEffect = true;
 
-#ifdef _DEBUG_
+      if (eeprom.modeRGBs == SINGLE)
+      {
+        colorPresentState[0] = 0;
+        colorPresentState[1] = 0;
+        colorPresentState[2] = 0;
+        colorPresentState[3] = 0;
+        acceptChange = true;
+      }
+
+      // acceptChange = true;
+      // clearEffect = true;
+
+#ifdef DEBUG
       Serial.println("[DEBUG] Data Mode Color = " + String(eeprom.modeRGBs));
 #endif
     }
     else if (dataPath == "/nums-Led")
     {
-      uint8_t numsLed = parserNumsLed(data);
-      eeprom.saveNumsLed(numsLed);
-      strip.updateLength((uint16_t)numsLed);
-#ifdef _DEBUG_
+      int numsLed = parserNumsLed(data);
+
+#ifdef DEBUG
       Serial.println("[DEBUG] Data Num Led Change = " + String(numsLed));
 #endif
-      clearEffect = true;
+      // eeprom.saveNumsLed(numsLed);
+
+      if (numsLed < numLedPresent)
+      {
+        clearEffectColor();
+      }
+
+      strip.updateLength((uint16_t)numsLed);
+
+      if(numLedPresent != numsLed) {
+        if (eeprom.modeRGBs == SINGLE)
+        {
+          colorPresentState[0] = 0;
+          colorPresentState[1] = 0;
+          colorPresentState[2] = 0;
+          colorPresentState[3] = 0;
+          acceptChange = true;
+        }else {
+          clearEffect = true;
+        }
+      }
+      numLedPresent = numsLed;
     }
   }
 
@@ -2019,7 +1710,7 @@ void streamCallback(FirebaseStream data)
 
 void streamTimeoutCallback(bool timeout)
 {
-#ifdef _DEBUG_
+#ifdef DEBUG
   if (timeout)
   {
     Serial.println("Stream timed out, resuming...\n");
@@ -2042,7 +1733,7 @@ void checkFirebaseInit()
   {
     String pathDevice = String(eeprom.DATABASE_NODE + "/devices");
     bool statePath = Firebase.RTDB.pathExisted(&fbdoStream, pathDevice);
-#ifdef _DEBUG_
+#ifdef DEBUG
     Serial.println(String("PATH Device = " + String(pathDevice)));
     Serial.println(String("State Path = " + String(statePath)));
 #endif
@@ -2076,7 +1767,7 @@ void checkFirebaseInit()
         createNode.clear();
       }
 
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[CREATED] - NEW LIST DEVICE");
 #endif
     }
@@ -2093,7 +1784,7 @@ void setupWifiModeStation()
   // ACTIVE MODE AP
   String ssid = eeprom.readSSID();
   String password = eeprom.readPassword();
-#ifdef _DEBUG_
+#ifdef DEBUG
   Serial.println("<--- STATION WIFI --->");
   Serial.println("[SSID] = " + String(ssid));
   Serial.println("[PASSWORD] = " + String(password));
@@ -2102,10 +1793,8 @@ void setupWifiModeStation()
   {
     if (WiFi.isConnected())
     {
-      WiFi.disconnect(true);
+      WiFi.disconnect();
     }
-    WiFi.setAutoConnect(true);
-    WiFi.setAutoReconnect(true);
     WiFi.begin(ssid.c_str(), password.c_str());
   }
 }
@@ -2170,19 +1859,19 @@ bool removeNodeEsp()
   bool result = false;
   if (ramHeapSize() > SSL_HANDSHAKE_REQUIRE * 1000)
   {
-#ifdef _DEBUG_
+#ifdef DEBUG
     Serial.println("[DEBUG] Remove Database node: " + eeprom.DATABASE_NODE);
 #endif
     if (Firebase.RTDB.deleteNode(&removeNode, eeprom.DATABASE_NODE))
     {
       result = true;
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Remove Database node successfull!");
 #endif
     }
     else
     {
-#ifdef _DEBUG_
+#ifdef DEBUG
       Serial.println("[DEBUG] Remove Database node failure!");
 #endif
     }
@@ -2190,7 +1879,7 @@ bool removeNodeEsp()
   else
   {
 
-#ifdef _DEBUG_
+#ifdef DEBUG
     Serial.println("[DEBUG] Heap ram not enough to handshake ssl delete node!");
 #endif
   }
@@ -2201,6 +1890,83 @@ void initWatchdogTimer()
 {
   esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
   esp_task_wdt_add(NULL);               // add current thread to WDT watch
+}
+
+status_config_wifi connectWifiByConfig(String ssid, String password)
+{
+  if (ssid.length() > 0 && password.length() > 0)
+  { // connection has been password
+#ifdef DEBUG
+    Serial.println("[DEBUG] connection has been \"password\"");
+#endif
+    if (ssid.length() > 32)
+    {
+      return SSID_TOO_LONG;
+    }
+    if (password.length() > 64)
+    {
+      return PASSWORD_TOO_LONG;
+    }
+
+    if (WiFi.isConnected())
+    {
+      WiFi.disconnect();
+
+#ifdef DEBUG
+      Serial.printf("[DEBUG] Diable wifi connecting\n");
+#endif
+    }
+
+    WiFi.begin(ssid.c_str(), password.c_str());
+
+    return CONFIG_DONE;
+  }
+  else if (ssid.length() > 0)
+  { // connection just have ssid
+#ifdef DEBUG
+    Serial.println("[DEBUG] connection just have \"ssid\"");
+#endif
+    if (ssid.length() > 32)
+    {
+      return SSID_TOO_LONG;
+    }
+
+    if (WiFi.isConnected())
+    {
+      WiFi.disconnect();
+
+#ifdef DEBUG
+      Serial.printf("[DEBUG] Diable wifi connecting\n");
+#endif
+    }
+
+    WiFi.begin(ssid.c_str());
+
+    return CONFIG_DONE;
+  }
+  else
+  {
+    return CONFIG_NOT_FOUND;
+  }
+}
+
+wl_status_t waitConnectWifi()
+{
+  uint8_t countWaitConnection = 0;
+  unsigned long wifiStatus = 0;
+  while (WiFi.status() != WL_CONNECTED && countWaitConnection < WAIT_CONNECTION)
+  {
+    if (millis() - wifiStatus > 500)
+    {
+      wifiStatus = millis();
+      esp_task_wdt_reset();
+      countWaitConnection++;
+#ifdef DEBUG
+      Serial.println("[Pooling check] Status Wifi " + String(WiFi.status()));
+#endif
+    }
+  }
+  return WiFi.status();
 }
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */

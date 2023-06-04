@@ -6,5 +6,6 @@
     "new": "cpp",
     "cstddef": "cpp",
     "limits": "cpp"
-  }
+  },
+  "vue.features.codeActions.enable": false
 }
